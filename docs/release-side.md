@@ -196,7 +196,7 @@ What it runs:
 
 - `release index`: `docker buildx imagetools create` per image with the tag `<version>` (and
   the extra tags), then reads back the index digest and the platforms it lists.
-- `release sign-images`: `cosign sign --yes [--key <key> --tlog-upload=false] <repository>@<index digest>`.
+- `release sign-images`: `cosign sign --yes [--key <key> --use-signing-config=false --tlog-upload=false] <repository>@<index digest>`.
   Only the index digest is signed; that is the digest `release.json` names and the sidecar
   verifies.
 - `release sbom`: `syft scan <repository>@<platform digest> --output spdx-json=<file>` per

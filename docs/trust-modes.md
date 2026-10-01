@@ -164,10 +164,12 @@ supports (anything with `://`); then export the public key with
 `umask 077` and remove it in a step that always runs; the password reaches cosign only as
 `COSIGN_PASSWORD` in its environment.
 
-The release side signs with `cosign sign --yes --key <key> --tlog-upload=false` and
-`cosign sign-blob --yes --key <key> --tlog-upload=false --bundle ...`. With
-`transparency-log: true` the `--tlog-upload=false` flag is left out and the signatures are
-uploaded to the public transparency log.
+The release side signs with
+`cosign sign --yes --key <key> --use-signing-config=false --tlog-upload=false` and
+`cosign sign-blob --yes --key <key> --use-signing-config=false --tlog-upload=false --bundle ...`
+(cosign 3 refuses `--tlog-upload=false` together with its default signing config, which
+names the public transparency log). With `transparency-log: true` both flags are left out
+and the signatures are uploaded to the public transparency log.
 
 ### Sidecar
 

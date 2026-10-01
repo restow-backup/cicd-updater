@@ -21,10 +21,9 @@ export function changelogSection(
   version: string,
 ): { date: string | null; placeholder: string | null } | null {
   const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = new RegExp(
-    `^##\\s*\\[?${escaped}\\]?\\s*(?:[-–]\\s*(\\S+))?\\s*$`,
-    "m",
-  ).exec(changelog);
+  const match = new RegExp(`^##\\s*\\[?${escaped}\\]?\\s*(?:[-–]\\s*(\\S+))?\\s*$`, "m").exec(
+    changelog,
+  );
   if (!match) {
     return null;
   }

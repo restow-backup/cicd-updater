@@ -29293,10 +29293,9 @@ async function buildImages(exec2, options) {
 // src/changelog.ts
 function changelogSection(changelog, version2) {
   const escaped = version2.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = new RegExp(
-    `^##\\s*\\[?${escaped}\\]?\\s*(?:[-\u2013]\\s*(\\S+))?\\s*$`,
-    "m"
-  ).exec(changelog);
+  const match = new RegExp(`^##\\s*\\[?${escaped}\\]?\\s*(?:[-\u2013]\\s*(\\S+))?\\s*$`, "m").exec(
+    changelog
+  );
   if (!match) {
     return null;
   }
@@ -29329,6 +29328,7 @@ function checkTag(input2) {
 
 // src/cosign.ts
 var IMAGE_BY_DIGEST = /^[a-z0-9][a-z0-9._/:-]{0,254}@sha256:[0-9a-f]{64}$/;
+var NO_TLOG = ["--use-signing-config=false", "--tlog-upload=false"];
 function keyArgs(options) {
   if (options.mode !== "key") {
     return [];
@@ -29336,7 +29336,7 @@ function keyArgs(options) {
   if (!options.key) {
     throw new Error("Signing mode key needs a key (input cosign-key).");
   }
-  return ["--key", options.key, ...options.transparencyLog ? [] : ["--tlog-upload=false"]];
+  return ["--key", options.key, ...options.transparencyLog ? [] : NO_TLOG];
 }
 function signImageArgs(ref, options) {
   if (!IMAGE_BY_DIGEST.test(ref)) {

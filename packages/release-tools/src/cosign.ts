@@ -25,6 +25,13 @@ export interface SigningOptions {
 
 const IMAGE_BY_DIGEST = /^[a-z0-9][a-z0-9._/:-]{0,254}@sha256:[0-9a-f]{64}$/;
 
+/**
+ * Without the transparency log, cosign 3 needs `--use-signing-config=false` as well:
+ * its default signing config (with a log) refuses `--tlog-upload=false` (checked
+ * against cosign 3.1.3 in the e2e).
+ */
+const NO_TLOG = ["--use-signing-config=false", "--tlog-upload=false"] as const;
+
 function keyArgs(options: SigningOptions): string[] {
   if (options.mode !== "key") {
     return [];
@@ -32,7 +39,7 @@ function keyArgs(options: SigningOptions): string[] {
   if (!options.key) {
     throw new Error("Signing mode key needs a key (input cosign-key).");
   }
-  return ["--key", options.key, ...(options.transparencyLog ? [] : ["--tlog-upload=false"])];
+  return ["--key", options.key, ...(options.transparencyLog ? [] : NO_TLOG)];
 }
 
 /** The cosign argv that signs an image index by digest; null in mode none. */

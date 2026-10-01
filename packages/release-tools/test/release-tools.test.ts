@@ -191,6 +191,7 @@ describe("cosign", () => {
       "--yes",
       "--key",
       "cosign.key",
+      "--use-signing-config=false",
       "--tlog-upload=false",
       ref,
     ]);
@@ -1053,6 +1054,7 @@ describe("sbom", () => {
       "--yes",
       "--key",
       "cosign.key",
+      "--use-signing-config=false",
       "--tlog-upload=false",
       "--type",
       "spdxjson",
