@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "project": "github.com/acme/notes",
+  "version": "1.4.0",
+  "tag": "v1.4.0",
+  "channel": "stable",
+  "commit": "4f1c0b6e2a9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b",
+  "createdAt": "2026-11-02T18:04:11Z",
+  "notesUrl": "https://github.com/acme/notes/releases/tag/v1.4.0",
+  "images": {
+    "app": {
+      "repository": "ghcr.io/acme/notes",
+      "tag": "1.4.0",
+      "digest": "sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "web": {
+      "repository": "ghcr.io/acme/notes-web",
+      "tag": "1.4.0",
+      "digest": "sha256:1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    }
+  },
+  "upgrade": {
+    "minimumFromVersion": "1.2.0",
+    "manualSteps": {
+      "required": false,
+      "summary": null,
+      "url": null
+    }
+  },
+  "requires": {
+    "updater": ">=1.0.0",
+    "env": ["NOTES_SEARCH_URL"]
+  },
+  "signing": {
+    "mode": "keyless",
+    "tool": "cosign",
+    "toolVersion": "3.1.3"
+  }
+}

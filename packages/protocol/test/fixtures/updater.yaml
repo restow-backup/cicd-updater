@@ -1,0 +1,43 @@
+version: 1
+
+compose:
+  projectDir: /opt/notes                  # usually set via CICD_UPDATER_COMPOSE__PROJECT_DIR
+  envFile: .env
+
+release:
+  feed:
+    type: github
+    url: https://github.com/acme/notes
+  channel: stable
+
+trust:
+  mode: keyless
+  keyless:
+    github:
+      repository: acme/notes
+      workflow: .github/workflows/release.yml
+
+services:
+  - { name: api,    image: app, imageVar: APP_IMAGE, startOrder: 1 }
+  - { name: worker, image: app, imageVar: APP_IMAGE, startOrder: 2 }
+  - { name: web,    image: web, imageVar: WEB_IMAGE, startOrder: 3, stopBeforeUpdate: false }
+
+hooks:
+  backup:
+    type: postgres
+    service: db
+  migrationProbe:
+    type: postgres
+    service: db
+    preset: node-pg-migrate
+  health:
+    type: http
+    http:
+      url: http://api:3000/healthz
+      versionJsonPath: $.version
+  smoke:
+    checks:
+      - { type: http, url: http://web:8080/, expectStatus: [200] }
+
+rollback:
+  policy: probe

@@ -1,0 +1,106 @@
+/**
+ * The normative JSON Schema of `release.json` schema version 1 (design 3.2),
+ * written out by hand because it is the contract other implementations read.
+ * `scripts/generate.ts` writes it to `schemas/release.schema.json`; the tests
+ * check that it and `releaseDocumentSchema` accept and refuse the same documents.
+ */
+
+const VERSION =
+  "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$";
+
+export const releaseJsonSchema = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: "https://raw.githubusercontent.com/restow-backup/cicd-updater/main/schemas/release.schema.json",
+  title: "cicd-updater release document",
+  type: "object",
+  required: [
+    "schemaVersion",
+    "project",
+    "version",
+    "tag",
+    "channel",
+    "createdAt",
+    "images",
+    "upgrade",
+    "signing",
+  ],
+  properties: {
+    schemaVersion: { const: 1 },
+    project: {
+      type: "string",
+      maxLength: 300,
+      pattern: "^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:[0-9]{1,5})?(/[A-Za-z0-9_.-]{1,100}){2,6}$",
+    },
+    version: { type: "string", maxLength: 64, pattern: VERSION },
+    tag: { type: "string", maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$" },
+    channel: { enum: ["stable", "beta"] },
+    commit: { type: ["string", "null"], pattern: "^([0-9a-f]{40}|[0-9a-f]{64})$" },
+    createdAt: { type: "string", format: "date-time" },
+    notesUrl: { type: ["string", "null"], maxLength: 2000, pattern: "^https://" },
+    images: {
+      type: "object",
+      minProperties: 1,
+      maxProperties: 32,
+      propertyNames: { pattern: "^[a-z][a-z0-9-]{0,31}$" },
+      additionalProperties: { $ref: "#/$defs/image" },
+    },
+    upgrade: {
+      type: "object",
+      required: ["minimumFromVersion", "manualSteps"],
+      properties: {
+        minimumFromVersion: { type: ["string", "null"], pattern: VERSION },
+        manualSteps: {
+          type: "object",
+          required: ["required"],
+          properties: {
+            required: { type: "boolean" },
+            summary: { type: ["string", "null"], maxLength: 2000 },
+            url: { type: ["string", "null"], maxLength: 2000, pattern: "^https://" },
+          },
+        },
+      },
+    },
+    requires: {
+      type: "object",
+      properties: {
+        updater: { type: "string", maxLength: 64, pattern: "^(>=|\\^)?[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        env: {
+          type: "array",
+          maxItems: 64,
+          uniqueItems: true,
+          items: { type: "string", pattern: "^[A-Za-z_][A-Za-z0-9_]{0,127}$" },
+        },
+      },
+    },
+    signing: {
+      type: "object",
+      required: ["mode"],
+      properties: {
+        mode: { enum: ["keyless", "key", "none"] },
+        tool: { const: "cosign" },
+        toolVersion: { type: "string", maxLength: 32 },
+      },
+    },
+  },
+  $defs: {
+    image: {
+      type: "object",
+      required: ["repository", "tag", "digest", "platforms"],
+      properties: {
+        repository: {
+          type: "string",
+          maxLength: 255,
+          pattern: "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?(/[a-z0-9]+([._-][a-z0-9]+)*)+$",
+        },
+        tag: { type: "string", pattern: "^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$" },
+        digest: { type: "string", pattern: "^sha256:[0-9a-f]{64}$" },
+        platforms: {
+          type: "array",
+          minItems: 1,
+          uniqueItems: true,
+          items: { enum: ["linux/amd64", "linux/arm64"] },
+        },
+      },
+    },
+  },
+} as const;

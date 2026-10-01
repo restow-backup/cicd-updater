@@ -1,0 +1,1514 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/restow-backup/cicd-updater/main/schemas/updater-config.schema.json",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "number",
+      "const": 1,
+      "description": "Must be 1."
+    },
+    "server": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "listen": {
+          "default": "0.0.0.0:8090",
+          "description": "Address the HTTP API listens on inside the container.",
+          "type": "string"
+        },
+        "allowPublishedPort": {
+          "default": false,
+          "description": "false: a published host port on the sidecar container is the blocker api_exposed.",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "auth": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "tokenFile": {
+          "default": null,
+          "description": "Operator-provided token file (for example a Compose secret); null: the sidecar generates the token.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sharedDir": {
+          "default": "/shared",
+          "description": "A generated token is written to <sharedDir>/token.",
+          "type": "string"
+        },
+        "tokenGroupId": {
+          "default": 0,
+          "description": "Group of the generated token file (mode 0640, owner root).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        }
+      },
+      "additionalProperties": false
+    },
+    "state": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "dir": {
+          "default": "/state",
+          "description": "Holds status.json, backups/, releases/ and src/. Must be a volume.",
+          "type": "string"
+        },
+        "historyLimit": {
+          "default": 20,
+          "description": "Finished runs kept in history.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "eventLimit": {
+          "default": 500,
+          "description": "Journal events kept.",
+          "type": "integer",
+          "minimum": 50,
+          "maximum": 5000
+        }
+      },
+      "additionalProperties": false
+    },
+    "self": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "service": {
+          "default": null,
+          "description": "The sidecar's own Compose service; null: its container label com.docker.compose.service.",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "compose": {
+      "type": "object",
+      "properties": {
+        "projectDir": {
+          "type": "string",
+          "description": "Host path of the Compose project, mounted at the same path inside the container. Required."
+        },
+        "projectName": {
+          "default": null,
+          "description": "null: the sidecar's own label com.docker.compose.project.",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "files": {
+          "default": [],
+          "description": "Files passed as -f; empty: Compose's own discovery.",
+          "maxItems": 10,
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "envFile": {
+          "default": ".env",
+          "description": "The interpolation env file Compose reads (the only file written).",
+          "type": "string"
+        },
+        "profiles": {
+          "default": [],
+          "description": "Profiles passed as --profile to every Compose call.",
+          "maxItems": 16,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+          }
+        }
+      },
+      "required": [
+        "projectDir"
+      ],
+      "additionalProperties": false
+    },
+    "docker": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "socket": {
+          "default": "/var/run/docker.sock",
+          "description": "Docker Engine socket.",
+          "type": "string"
+        },
+        "registryAuthFile": {
+          "default": null,
+          "description": "Docker config.json with an auths object only, used for pulls and verification.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "minFreeMb": {
+          "default": 2048,
+          "description": "Free space required on the state file system after the backup.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000000
+        }
+      },
+      "additionalProperties": false
+    },
+    "release": {
+      "type": "object",
+      "properties": {
+        "feed": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "github",
+                "gitea",
+                "gitlab",
+                "static",
+                "file"
+              ],
+              "description": "Feed provider."
+            },
+            "url": {
+              "default": null,
+              "description": "Repository URL, or the index URL for static; not used with file.",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "path": {
+              "default": null,
+              "description": "file only: directory with index.json, documents and bundles.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tokenFile": {
+              "default": null,
+              "description": "Token for a private repository, sent only to the feed origin.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "allowPrivateNetwork": {
+              "default": false,
+              "description": "Allow loopback/private addresses for the feed host.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        "channel": {
+          "default": "stable",
+          "description": "stable or beta.",
+          "type": "string",
+          "enum": [
+            "stable",
+            "beta"
+          ]
+        },
+        "tagPattern": {
+          "default": "v{version}",
+          "description": "How a version maps to the Git tag.",
+          "type": "string"
+        },
+        "cacheSeconds": {
+          "default": 300,
+          "description": "Reuse of the release list.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "checkIntervalHours": {
+          "default": 0,
+          "description": "0: the sidecar reads the feed only on request.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 168
+        }
+      },
+      "required": [
+        "feed"
+      ],
+      "additionalProperties": false
+    },
+    "trust": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "mode": {
+          "default": "keyless",
+          "description": "keyless, key or none; never a fallback between them.",
+          "type": "string",
+          "enum": [
+            "keyless",
+            "key",
+            "none"
+          ]
+        },
+        "keyless": {
+          "type": "object",
+          "properties": {
+            "github": {
+              "type": "object",
+              "properties": {
+                "repository": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_.-]{1,100}\\/[A-Za-z0-9_.-]{1,100}$",
+                  "description": "owner/repo of the release workflow."
+                },
+                "workflow": {
+                  "type": "string",
+                  "pattern": "^\\.github\\/workflows\\/[A-Za-z0-9_.-]+\\.ya?ml$",
+                  "description": ".github/workflows/<file>.yml"
+                }
+              },
+              "required": [
+                "repository",
+                "workflow"
+              ],
+              "additionalProperties": false
+            },
+            "gitlab": {
+              "type": "object",
+              "properties": {
+                "host": {
+                  "default": "gitlab.com",
+                  "type": "string",
+                  "pattern": "^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:[0-9]{1,5})?$"
+                },
+                "project": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_.-]{1,100}(\\/[A-Za-z0-9_.-]{1,100}){1,6}$",
+                  "description": "group[/subgroup...]/project"
+                },
+                "ciConfigPath": {
+                  "default": ".gitlab-ci.yml",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project"
+              ],
+              "additionalProperties": false
+            },
+            "issuer": {
+              "description": "Generic form: OIDC issuer.",
+              "type": "string",
+              "maxLength": 2000
+            },
+            "identityTemplate": {
+              "description": "Generic form: exact identity with {tag} and optional {version}.",
+              "type": "string",
+              "maxLength": 1024,
+              "pattern": "^[\\x21-\\x7e]+$"
+            },
+            "trustedRootFile": {
+              "default": null,
+              "description": "Sigstore trusted root JSON for air-gapped hosts.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "key": {
+          "type": "object",
+          "properties": {
+            "publicKeyFiles": {
+              "minItems": 1,
+              "maxItems": 5,
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "PEM public keys; a signature by any of them is accepted."
+            },
+            "transparencyLog": {
+              "default": false,
+              "description": "true: signatures must also have a transparency log entry.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "publicKeyFiles"
+          ],
+          "additionalProperties": false
+        },
+        "none": {
+          "type": "object",
+          "properties": {
+            "acknowledgeUnsigned": {
+              "default": false,
+              "description": "Must be true with mode none.",
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "verifier": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "isolate": {
+              "default": true,
+              "description": "Run cosign in an isolated sibling container.",
+              "type": "boolean"
+            },
+            "workDir": {
+              "default": "/verify",
+              "description": "Volume shared read-only with the verifier.",
+              "type": "string"
+            },
+            "timeoutSeconds": {
+              "default": 300,
+              "description": "Per cosign call.",
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 1800
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "images": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{0,31}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "repository": {
+            "type": "string",
+            "maxLength": 255,
+            "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?(\\/[a-z0-9]+([._-][a-z0-9]+)*)+$",
+            "description": "Mirror repository; signatures must have been copied (cosign copy)."
+          }
+        },
+        "required": [
+          "repository"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "services": {
+      "minItems": 1,
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$",
+            "description": "Compose service name."
+          },
+          "image": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,31}$",
+            "description": "Key in release.json images."
+          },
+          "imageVar": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{0,127}$",
+            "description": "Env key the service takes its image from (a writable key)."
+          },
+          "startOrder": {
+            "default": 1,
+            "description": "Start group, ascending.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9
+          },
+          "stopBeforeUpdate": {
+            "default": true,
+            "description": "Stopped in the stop step (writers such as workers).",
+            "type": "boolean"
+          },
+          "stopOnAttention": {
+            "default": true,
+            "description": "Stopped when the run ends in needs_attention.",
+            "type": "boolean"
+          },
+          "optional": {
+            "default": false,
+            "description": "A release without this image key leaves the service as it is.",
+            "type": "boolean"
+          },
+          "health": {
+            "default": null,
+            "description": "Extra per-service check.",
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "http"
+                      },
+                      "url": {
+                        "type": "string",
+                        "maxLength": 2000
+                      },
+                      "expectStatus": {
+                        "default": [
+                          200
+                        ],
+                        "minItems": 1,
+                        "maxItems": 20,
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "minimum": 100,
+                          "maximum": 599
+                        }
+                      },
+                      "bodyContains": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 1000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "sendToken": {
+                        "default": false,
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "url"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "command"
+                      },
+                      "service": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
+                      },
+                      "argv": {
+                        "minItems": 1,
+                        "maxItems": 64,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "maxLength": 4096
+                        }
+                      },
+                      "expectExitCode": {
+                        "default": 0,
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "service",
+                      "argv"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "image",
+          "imageVar"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "env": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "versionVar": {
+          "default": null,
+          "description": "Env key that receives the plain target version (a writable key).",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]{0,127}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "redactKeyPattern": {
+          "default": "(PASSWORD|PASSWD|SECRET|TOKEN|KEY|CREDENTIAL|PRIVATE|DSN)",
+          "description": "Values of matching env keys are registered for redaction.",
+          "type": "string",
+          "maxLength": 500
+        }
+      },
+      "additionalProperties": false
+    },
+    "hooks": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "backup": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "type": {
+              "default": "none",
+              "type": "string",
+              "enum": [
+                "none",
+                "postgres",
+                "mysql",
+                "volume",
+                "command"
+              ]
+            },
+            "service": {
+              "description": "Database service (postgres, mysql).",
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
+            },
+            "user": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "database": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "flavor": {
+              "default": "auto",
+              "type": "string",
+              "enum": [
+                "auto",
+                "mysql",
+                "mariadb"
+              ]
+            },
+            "volumes": {
+              "default": [],
+              "maxItems": 16,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
+              }
+            },
+            "quiesce": {
+              "default": false,
+              "description": "Stop before the backup (forced true for volume).",
+              "type": "boolean"
+            },
+            "command": {
+              "type": "object",
+              "properties": {
+                "image": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9._/:-]{0,199}@sha256:[0-9a-f]{64}$",
+                  "description": "Image pinned by digest."
+                },
+                "argv": {
+                  "minItems": 1,
+                  "maxItems": 64,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 4096
+                  }
+                },
+                "envKeys": {
+                  "default": [],
+                  "maxItems": 32,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+                  }
+                },
+                "network": {
+                  "default": "project",
+                  "type": "string",
+                  "enum": [
+                    "project",
+                    "none"
+                  ]
+                },
+                "outputFile": {
+                  "default": "backup.out",
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                }
+              },
+              "required": [
+                "image",
+                "argv"
+              ],
+              "additionalProperties": false
+            },
+            "lockWaitSeconds": {
+              "default": 120,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3600
+            },
+            "encryption": {
+              "default": {},
+              "type": "object",
+              "properties": {
+                "ageRecipients": {
+                  "default": [],
+                  "maxItems": 16,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^age1[02-9ac-hj-np-z]{58}$"
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "retention": {
+              "default": {},
+              "type": "object",
+              "properties": {
+                "keep": {
+                  "default": 3,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 50
+                },
+                "maxAgeDays": {
+                  "default": 14,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 3650
+                }
+              },
+              "additionalProperties": false
+            },
+            "timeoutSeconds": {
+              "default": 7200,
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 86400
+            },
+            "verifyTimeoutSeconds": {
+              "default": 1800,
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 86400
+            }
+          },
+          "additionalProperties": false
+        },
+        "migrationProbe": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "type": {
+              "default": "none",
+              "type": "string",
+              "enum": [
+                "none",
+                "postgres",
+                "mysql",
+                "command",
+                "http"
+              ]
+            },
+            "service": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
+            },
+            "user": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "database": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "preset": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "drizzle",
+                    "prisma",
+                    "knex",
+                    "alembic",
+                    "django",
+                    "flyway",
+                    "rails",
+                    "golang-migrate",
+                    "node-pg-migrate",
+                    "typeorm",
+                    "sequelize"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "query": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "fingerprint": {
+              "default": true,
+              "type": "boolean"
+            },
+            "command": {
+              "type": "object",
+              "properties": {
+                "service": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
+                },
+                "argv": {
+                  "minItems": 1,
+                  "maxItems": 64,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 4096
+                  }
+                }
+              },
+              "required": [
+                "service",
+                "argv"
+              ],
+              "additionalProperties": false
+            },
+            "http": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                "jsonPath": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "url",
+                "jsonPath"
+              ],
+              "additionalProperties": false
+            },
+            "timeoutSeconds": {
+              "default": 60,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 600
+            }
+          },
+          "additionalProperties": false
+        },
+        "migrate": {
+          "default": null,
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "service": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$",
+                  "description": "A managed service whose new image runs the command."
+                },
+                "argv": {
+                  "minItems": 1,
+                  "maxItems": 64,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 4096
+                  }
+                },
+                "timeoutSeconds": {
+                  "default": 1800,
+                  "type": "integer",
+                  "minimum": 10,
+                  "maximum": 86400
+                }
+              },
+              "required": [
+                "service",
+                "argv"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "health": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "type": {
+              "default": "none",
+              "type": "string",
+              "enum": [
+                "none",
+                "http",
+                "command"
+              ]
+            },
+            "http": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                "sendToken": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "expectStatus": {
+                  "default": [
+                    200
+                  ],
+                  "minItems": 1,
+                  "maxItems": 20,
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 100,
+                    "maximum": 599
+                  }
+                },
+                "versionJsonPath": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "conditions": {
+                  "default": [],
+                  "maxItems": 20,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "equals": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 1000
+                          },
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "equals"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "requestTimeoutSeconds": {
+                  "default": 5,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 60
+                }
+              },
+              "required": [
+                "url"
+              ],
+              "additionalProperties": false
+            },
+            "command": {
+              "type": "object",
+              "properties": {
+                "service": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
+                },
+                "argv": {
+                  "minItems": 1,
+                  "maxItems": 64,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 4096
+                  }
+                },
+                "versionFromStdout": {
+                  "default": false,
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "service",
+                "argv"
+              ],
+              "additionalProperties": false
+            },
+            "afterGroup": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "intervalSeconds": {
+              "default": 2,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 60
+            },
+            "timeoutSeconds": {
+              "default": 600,
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 7200
+            },
+            "versionMismatchLimit": {
+              "default": 3,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            },
+            "crashLimit": {
+              "default": 2,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "waitForDockerHealth": {
+              "default": "auto",
+              "type": "string",
+              "enum": [
+                "auto",
+                "always",
+                "never"
+              ]
+            },
+            "servicesGraceSeconds": {
+              "default": 60,
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 600
+            }
+          },
+          "additionalProperties": false
+        },
+        "smoke": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "checks": {
+              "default": [],
+              "maxItems": 20,
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "http"
+                      },
+                      "url": {
+                        "type": "string",
+                        "maxLength": 2000
+                      },
+                      "expectStatus": {
+                        "default": [
+                          200
+                        ],
+                        "minItems": 1,
+                        "maxItems": 20,
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "minimum": 100,
+                          "maximum": 599
+                        }
+                      },
+                      "bodyContains": {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 1000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "sendToken": {
+                        "default": false,
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "url"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "command"
+                      },
+                      "service": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
+                      },
+                      "argv": {
+                        "minItems": 1,
+                        "maxItems": 64,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "maxLength": 4096
+                        }
+                      },
+                      "expectExitCode": {
+                        "default": 0,
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "service",
+                      "argv"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "retries": {
+              "default": 5,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            },
+            "intervalSeconds": {
+              "default": 3,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 60
+            },
+            "timeoutSeconds": {
+              "default": 300,
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 1800
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "rollback": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "policy": {
+          "default": null,
+          "description": "null: probe when a migration probe is configured, else never.",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "probe",
+                "always",
+                "never"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "source": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "allowlist": {
+          "default": [],
+          "description": "host or host/owner/repo, lowercase; empty: source mode off.",
+          "maxItems": 100,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*(:[0-9]{1,5})?(\\/[a-z0-9_.-]{1,100}){0,7}$"
+          }
+        },
+        "tokenFile": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "maxArchiveMb": {
+          "default": 200,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2048
+        },
+        "build": {
+          "default": {},
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,31}$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "context": {
+                "default": ".",
+                "type": "string"
+              },
+              "dockerfile": {
+                "default": "Dockerfile",
+                "type": "string"
+              },
+              "target": {
+                "default": null,
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "buildArgs": {
+                "default": {},
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "pattern": "^[0-9A-Za-z._{}-]{0,128}$"
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "cleanup": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "keepPreviousImages": {
+          "default": 1,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        }
+      },
+      "additionalProperties": false
+    },
+    "schedule": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "maxLeadSeconds": {
+          "default": 1209600,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2592000
+        },
+        "lateStartToleranceSeconds": {
+          "default": 600,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400
+        }
+      },
+      "additionalProperties": false
+    },
+    "timeouts": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "pullSeconds": {
+          "default": 1800,
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 14400
+        },
+        "stopSeconds": {
+          "default": 60,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 600
+        },
+        "upSeconds": {
+          "default": 900,
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 3600
+        },
+        "composeSeconds": {
+          "default": 120,
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 600
+        }
+      },
+      "additionalProperties": false
+    },
+    "publicStatus": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "type": "boolean"
+        },
+        "showVersions": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "maintenancePage": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "type": "boolean"
+        },
+        "brandingFile": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "templateDir": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "languages": {
+          "default": [
+            "en",
+            "de"
+          ],
+          "minItems": 1,
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z]{2}(-[A-Z]{2})?$"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "logging": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "level": {
+          "default": "info",
+          "type": "string",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ]
+        },
+        "format": {
+          "default": "text",
+          "type": "string",
+          "enum": [
+            "text",
+            "json"
+          ]
+        },
+        "redactPatterns": {
+          "default": [],
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "selfCheck": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "version",
+    "compose",
+    "release",
+    "services"
+  ],
+  "additionalProperties": false,
+  "title": "cicd-updater configuration (updater.yaml)"
+}
