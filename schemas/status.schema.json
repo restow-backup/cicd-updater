@@ -103,6 +103,9 @@
             "applyAttempted": {
               "type": "boolean"
             },
+            "ponrReached": {
+              "type": "boolean"
+            },
             "backupFile": {
               "type": [
                 "string",
@@ -148,6 +151,7 @@
             "previousImages",
             "baseline",
             "applyAttempted",
+            "ponrReached",
             "backupFile",
             "plan"
           ],

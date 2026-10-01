@@ -168,6 +168,8 @@ export const runContextSchema = z.object({
   baseline: z.string().nullable(),
   /** Set immediately before the first command that could start a new image. */
   applyAttempted: z.boolean(),
+  /** Set when the run reached the point of no return (the start of the stop step). */
+  ponrReached: z.boolean(),
   /** Set once the backup was created and verified. */
   backupFile: z.string().nullable(),
   plan: z
@@ -206,6 +208,7 @@ export function emptyRunContext(): RunContext {
     previousImages: null,
     baseline: null,
     applyAttempted: false,
+    ponrReached: false,
     backupFile: null,
     plan: null,
   };

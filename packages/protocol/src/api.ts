@@ -120,7 +120,11 @@ export const capabilitiesSchema = z
     checkedAt: isoTime,
   })
   .meta({ id: "Capabilities" });
-export type Capabilities = z.infer<typeof capabilitiesSchema>;
+/** Capabilities as the sidecar produces them (known codes); clients parse codes as plain strings. */
+export type Capabilities = Omit<z.infer<typeof capabilitiesSchema>, "blockers" | "warnings"> & {
+  blockers: Blocker[];
+  warnings: Warning[];
+};
 
 export const stateViewSchema = z
   .object({
