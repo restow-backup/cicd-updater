@@ -123,7 +123,8 @@ const argv = z
       .refine((value) => !value.includes("\0"), { message: "must not contain NUL" }),
   )
   .min(1)
-  .max(64);
+  .max(64)
+  .meta({ description: "1 to 64 arguments, no shell." });
 
 const int = (min: number, max: number) => z.number().int().min(min).max(max);
 
@@ -275,12 +276,15 @@ const keylessSchema = z.strictObject({
       host: z
         .string()
         .regex(/^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:[0-9]{1,5})?$/)
-        .default("gitlab.com"),
+        .default("gitlab.com")
+        .meta({ description: "GitLab instance host (issuer https://<host>)." }),
       project: z
         .string()
         .regex(/^[A-Za-z0-9_.-]{1,100}(\/[A-Za-z0-9_.-]{1,100}){1,6}$/)
         .meta({ description: "group[/subgroup...]/project" }),
-      ciConfigPath: relPath.default(".gitlab-ci.yml"),
+      ciConfigPath: relPath
+        .default(".gitlab-ci.yml")
+        .meta({ description: "Path of the CI configuration in the project." }),
     })
     .optional(),
   issuer: httpsUrl.optional().meta({ description: "Generic form: OIDC issuer." }),
@@ -349,18 +353,32 @@ const imageOverrideSchema = z.strictObject({
 });
 
 export const httpCheckSchema = z.strictObject({
-  type: z.literal("http"),
-  url: httpUrl,
-  expectStatus: z.array(int(100, 599)).min(1).max(20).default([200]),
-  bodyContains: z.string().min(1).max(1000).nullable().default(null),
-  sendToken: z.boolean().default(false),
+  type: z.literal("http").meta({ description: "An HTTP GET." }),
+  url: httpUrl.meta({ description: "http(s) URL on the internal network." }),
+  expectStatus: z
+    .array(int(100, 599))
+    .min(1)
+    .max(20)
+    .default([200])
+    .meta({ description: "Accepted statuses." }),
+  bodyContains: z
+    .string()
+    .min(1)
+    .max(1000)
+    .nullable()
+    .default(null)
+    .meta({ description: "Text the body must contain." }),
+  sendToken: z
+    .boolean()
+    .default(false)
+    .meta({ description: "Send Authorization: Bearer <token>." }),
 });
 
 export const commandCheckSchema = z.strictObject({
-  type: z.literal("command"),
-  service: serviceName,
+  type: z.literal("command").meta({ description: "A command in a service container." }),
+  service: serviceName.meta({ description: "Runs with docker compose exec -T in this service." }),
   argv,
-  expectExitCode: int(0, 255).default(0),
+  expectExitCode: int(0, 255).default(0).meta({ description: "Expected exit code." }),
 });
 
 export const checkSchema = z.discriminatedUnion("type", [httpCheckSchema, commandCheckSchema]);
@@ -412,12 +430,28 @@ export type BackupType = (typeof BACKUP_TYPES)[number];
 
 const backupSchema = z
   .strictObject({
-    type: z.enum(BACKUP_TYPES).default("none"),
+    type: z
+      .enum(BACKUP_TYPES)
+      .default("none")
+      .meta({ description: "Backup taken before the update." }),
     service: serviceName.optional().meta({ description: "Database service (postgres, mysql)." }),
-    user: dbName.nullable().default(null),
-    database: dbName.nullable().default(null),
-    flavor: z.enum(["auto", "mysql", "mariadb"]).default("auto"),
-    volumes: z.array(z.string().regex(SERVICE_NAME_PATTERN)).max(16).default([]),
+    user: dbName
+      .nullable()
+      .default(null)
+      .meta({ description: "null: the container's own env (POSTGRES_USER; MySQL: root)." }),
+    database: dbName
+      .nullable()
+      .default(null)
+      .meta({ description: "null: POSTGRES_DB / MYSQL_DATABASE / MARIADB_DATABASE." }),
+    flavor: z
+      .enum(["auto", "mysql", "mariadb"])
+      .default("auto")
+      .meta({ description: "MySQL family; auto: mariadb-dump if present, else mysqldump." }),
+    volumes: z
+      .array(z.string().regex(SERVICE_NAME_PATTERN))
+      .max(16)
+      .default([])
+      .meta({ description: "volume: Compose volume names (project prefix resolved)." }),
     quiesce: z
       .boolean()
       .default(false)
@@ -432,25 +466,43 @@ const backupSchema = z
         envKeys: z
           .array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/))
           .max(32)
-          .default([]),
-        network: z.enum(["project", "none"]).default("project"),
-        outputFile: z.string().regex(FILE_NAME_PATTERN).default("backup.out"),
+          .default([])
+          .meta({ description: "Env keys whose values are passed to the backup container." }),
+        network: z
+          .enum(["project", "none"])
+          .default("project")
+          .meta({ description: "project: the project's default network." }),
+        outputFile: z
+          .string()
+          .regex(FILE_NAME_PATTERN)
+          .default("backup.out")
+          .meta({ description: "File the container writes into /backup." }),
       })
       .optional(),
-    lockWaitSeconds: int(1, 3600).default(120),
+    lockWaitSeconds: int(1, 3600)
+      .default(120)
+      .meta({ description: "PostgreSQL --lock-wait-timeout." }),
     encryption: z
       .strictObject({
-        ageRecipients: z.array(z.string().regex(AGE_RECIPIENT_PATTERN)).max(16).default([]),
+        ageRecipients: z
+          .array(z.string().regex(AGE_RECIPIENT_PATTERN))
+          .max(16)
+          .default([])
+          .meta({ description: "age1... public keys; the verified backup is encrypted." }),
       })
       .prefault({}),
     retention: z
       .strictObject({
-        keep: int(1, 50).default(3),
-        maxAgeDays: int(0, 3650).default(14),
+        keep: int(1, 50).default(3).meta({ description: "Newest backups kept." }),
+        maxAgeDays: int(0, 3650)
+          .default(14)
+          .meta({ description: "Older backups are deleted; 0: no age limit." }),
       })
       .prefault({}),
-    timeoutSeconds: int(60, 86400).default(7200),
-    verifyTimeoutSeconds: int(60, 86400).default(1800),
+    timeoutSeconds: int(60, 86400).default(7200).meta({ description: "For creating the backup." }),
+    verifyTimeoutSeconds: int(60, 86400)
+      .default(1800)
+      .meta({ description: "For verifying the backup." }),
   })
   .prefault({});
 
@@ -473,75 +525,139 @@ export const PROBE_TYPES = ["none", "postgres", "mysql", "command", "http"] as c
 
 const probeSchema = z
   .strictObject({
-    type: z.enum(PROBE_TYPES).default("none"),
-    service: serviceName.optional(),
-    user: dbName.nullable().default(null),
-    database: dbName.nullable().default(null),
-    preset: z.enum(PROBE_PRESETS).nullable().default(null),
-    query: z.string().max(4000).nullable().default(null),
-    fingerprint: z.boolean().default(true),
-    command: z.strictObject({ service: serviceName, argv }).optional(),
-    http: z
+    type: z
+      .enum(PROBE_TYPES)
+      .default("none")
+      .meta({ description: "How the schema state is read before and after the update." }),
+    service: serviceName.optional().meta({ description: "Database service (postgres, mysql)." }),
+    user: dbName.nullable().default(null).meta({ description: "As in hooks.backup." }),
+    database: dbName.nullable().default(null).meta({ description: "As in hooks.backup." }),
+    preset: z
+      .enum(PROBE_PRESETS)
+      .nullable()
+      .default(null)
+      .meta({ description: "Query of a migration tool (docs/hooks.md); exclusive with query." }),
+    query: z
+      .string()
+      .max(4000)
+      .nullable()
+      .default(null)
+      .meta({ description: "One SELECT returning one value; exclusive with preset." }),
+    fingerprint: z
+      .boolean()
+      .default(true)
+      .meta({ description: "Append a hash of the schema catalog (columns) to the value." }),
+    command: z
       .strictObject({
-        url: httpUrl,
-        jsonPath: z.string().refine(isValidJsonPath, { message: "must be a path like $.a.b[0]" }),
+        service: serviceName.meta({ description: "Runs with docker compose exec -T." }),
+        argv,
       })
       .optional(),
-    timeoutSeconds: int(1, 600).default(60),
+    http: z
+      .strictObject({
+        url: httpUrl.meta({ description: "GET with the token." }),
+        jsonPath: z
+          .string()
+          .refine(isValidJsonPath, { message: "must be a path like $.a.b[0]" })
+          .meta({ description: "Path of the value in the JSON body." }),
+      })
+      .optional(),
+    timeoutSeconds: int(1, 600).default(60).meta({ description: "Per probe." }),
   })
   .prefault({});
 
 const migrateSchema = z.strictObject({
   service: serviceName.meta({ description: "A managed service whose new image runs the command." }),
   argv,
-  timeoutSeconds: int(10, 86400).default(1800),
+  timeoutSeconds: int(10, 86400).default(1800).meta({ description: "For the migration run." }),
 });
 
 const conditionSchema = z.strictObject({
-  path: z.string().refine(isValidJsonPath, { message: "must be a path like $.a.b[0]" }),
-  equals: z.union([z.string().max(1000), z.number(), z.boolean(), z.null()]),
+  path: z
+    .string()
+    .refine(isValidJsonPath, { message: "must be a path like $.a.b[0]" })
+    .meta({ description: "Path in the JSON body." }),
+  equals: z
+    .union([z.string().max(1000), z.number(), z.boolean(), z.null()])
+    .meta({ description: "Value the path must hold." }),
 });
 
 const healthSchema = z
   .strictObject({
-    type: z.enum(["none", "http", "command"]).default("none"),
+    type: z
+      .enum(["none", "http", "command"])
+      .default("none")
+      .meta({ description: "The app check; none gives the warning health_without_app_check." }),
     http: z
       .strictObject({
-        url: httpUrl,
-        sendToken: z.boolean().default(true),
-        expectStatus: z.array(int(100, 599)).min(1).max(20).default([200]),
+        url: httpUrl.meta({ description: "http(s) URL on the internal network." }),
+        sendToken: z.boolean().default(true).meta({
+          description: "Send Authorization: Bearer <token> (the app may reveal its version).",
+        }),
+        expectStatus: z
+          .array(int(100, 599))
+          .min(1)
+          .max(20)
+          .default([200])
+          .meta({ description: "Accepted statuses." }),
         versionJsonPath: z
           .string()
           .refine(isValidJsonPath, { message: "must be a path like $.version" })
           .nullable()
-          .default(null),
-        conditions: z.array(conditionSchema).max(20).default([]),
-        requestTimeoutSeconds: int(1, 60).default(5),
+          .default(null)
+          .meta({ description: "Path of the version in the JSON body; null: no version check." }),
+        conditions: z
+          .array(conditionSchema)
+          .max(20)
+          .default([])
+          .meta({ description: "{ path, equals } pairs that must hold in the body." }),
+        requestTimeoutSeconds: int(1, 60).default(5).meta({ description: "Per request." }),
       })
       .optional(),
     command: z
       .strictObject({
-        service: serviceName,
+        service: serviceName.meta({
+          description: "Runs with docker compose exec -T; exit 0 is healthy.",
+        }),
         argv,
-        versionFromStdout: z.boolean().default(false),
+        versionFromStdout: z
+          .boolean()
+          .default(false)
+          .meta({ description: "The first line of stdout is the version." }),
       })
       .optional(),
-    afterGroup: int(1, 9).nullable().default(null),
-    intervalSeconds: int(1, 60).default(2),
-    timeoutSeconds: int(10, 7200).default(600),
-    versionMismatchLimit: int(1, 20).default(3),
-    crashLimit: int(1, 10).default(2),
-    waitForDockerHealth: z.enum(["auto", "always", "never"]).default("auto"),
-    servicesGraceSeconds: int(5, 600).default(60),
+    afterGroup: int(1, 9)
+      .nullable()
+      .default(null)
+      .meta({ description: "Start group after which the app check runs first; null: the lowest." }),
+    intervalSeconds: int(1, 60).default(2).meta({ description: "Between polls." }),
+    timeoutSeconds: int(10, 7200).default(600).meta({ description: "Per wait." }),
+    versionMismatchLimit: int(1, 20).default(3).meta({
+      description: "Healthy answers with another version before health.version_mismatch.",
+    }),
+    crashLimit: int(1, 10)
+      .default(2)
+      .meta({ description: "Restarting/exited observations before health.crashed." }),
+    waitForDockerHealth: z
+      .enum(["auto", "always", "never"])
+      .default("auto")
+      .meta({ description: "auto: wait for healthy where a Docker healthcheck exists." }),
+    servicesGraceSeconds: int(5, 600)
+      .default(60)
+      .meta({ description: "For all managed services to be running after the last group." }),
   })
   .prefault({});
 
 const smokeSchema = z
   .strictObject({
-    checks: z.array(checkSchema).max(20).default([]),
-    retries: int(1, 20).default(5),
-    intervalSeconds: int(1, 60).default(3),
-    timeoutSeconds: int(10, 1800).default(300),
+    checks: z
+      .array(checkSchema)
+      .max(20)
+      .default([])
+      .meta({ description: "http or command checks after the app is healthy." }),
+    retries: int(1, 20).default(5).meta({ description: "Attempts per check." }),
+    intervalSeconds: int(1, 60).default(3).meta({ description: "Between attempts." }),
+    timeoutSeconds: int(10, 1800).default(300).meta({ description: "For all checks." }),
   })
   .prefault({});
 
@@ -549,7 +665,10 @@ const hooksSchema = z
   .strictObject({
     backup: backupSchema,
     migrationProbe: probeSchema,
-    migrate: migrateSchema.nullable().default(null),
+    migrate: migrateSchema
+      .nullable()
+      .default(null)
+      .meta({ description: "Optional separate migration run before the services start." }),
     health: healthSchema,
     smoke: smokeSchema,
   })
@@ -582,81 +701,125 @@ const sourceSchema = z
       .max(100)
       .default([])
       .meta({ description: "host or host/owner/repo, lowercase; empty: source mode off." }),
-    tokenFile: absPath.nullable().default(null),
-    maxArchiveMb: int(1, 2048).default(200),
+    tokenFile: absPath
+      .nullable()
+      .default(null)
+      .meta({ description: "Token for the archive download; null: release.feed.tokenFile." }),
+    maxArchiveMb: int(1, 2048).default(200).meta({ description: "Largest source archive." }),
     build: z
       .record(
         z.string().regex(IMAGE_KEY_PATTERN),
         z.strictObject({
-          context: relPath.default("."),
-          dockerfile: relPath.default("Dockerfile"),
+          context: relPath.default(".").meta({ description: "Build context inside the archive." }),
+          dockerfile: relPath.default("Dockerfile").meta({ description: "Dockerfile path." }),
           target: z
             .string()
             .regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/)
             .nullable()
-            .default(null),
+            .default(null)
+            .meta({ description: "Dockerfile target." }),
           buildArgs: z
             .record(
               z.string().regex(BUILD_ARG_NAME_PATTERN),
               z.string().regex(BUILD_ARG_VALUE_PATTERN),
             )
-            .default({}),
+            .default({})
+            .meta({ description: "Build arguments; {version} is replaced." }),
         }),
       )
-      .default({}),
+      .default({})
+      .meta({ description: "How each image key is built in source mode." }),
   })
   .prefault({});
 
-const cleanupSchema = z.strictObject({ keepPreviousImages: int(0, 10).default(1) }).prefault({});
+const cleanupSchema = z
+  .strictObject({
+    keepPreviousImages: int(0, 10).default(1).meta({
+      description: "Older images per repository kept besides the current and rollback image.",
+    }),
+  })
+  .prefault({});
 
 const scheduleSchema = z
   .strictObject({
-    maxLeadSeconds: int(0, 2_592_000).default(1_209_600),
-    lateStartToleranceSeconds: int(0, 86400).default(600),
+    maxLeadSeconds: int(0, 2_592_000)
+      .default(1_209_600)
+      .meta({ description: "Latest start a request may ask for." }),
+    lateStartToleranceSeconds: int(0, 86400)
+      .default(600)
+      .meta({ description: "A run found later than this after startsAt is not started." }),
   })
   .prefault({});
 
 const timeoutsSchema = z
   .strictObject({
-    pullSeconds: int(60, 14400).default(1800),
-    stopSeconds: int(1, 600).default(60),
-    upSeconds: int(30, 3600).default(900),
-    composeSeconds: int(10, 600).default(120),
+    pullSeconds: int(60, 14400).default(1800).meta({ description: "Per image pull." }),
+    stopSeconds: int(1, 600).default(60).meta({ description: "compose stop -t." }),
+    upSeconds: int(30, 3600).default(900).meta({ description: "Per compose up." }),
+    composeSeconds: int(10, 600)
+      .default(120)
+      .meta({ description: "For config, ps, logs and inspect calls." }),
   })
   .prefault({});
 
 const publicStatusSchema = z
   .strictObject({
-    enabled: z.boolean().default(true),
-    showVersions: z.boolean().default(false),
+    enabled: z.boolean().default(true).meta({ description: "Serve GET /public/v1/status." }),
+    showVersions: z
+      .boolean()
+      .default(false)
+      .meta({ description: "Include versions in the public status." }),
   })
   .prefault({});
 
 const maintenancePageSchema = z
   .strictObject({
-    enabled: z.boolean().default(false),
-    brandingFile: absPath.nullable().default(null),
-    templateDir: absPath.nullable().default(null),
+    enabled: z
+      .boolean()
+      .default(false)
+      .meta({ description: "Serve the page under /public/v1/maintenance/." }),
+    brandingFile: absPath
+      .nullable()
+      .default(null)
+      .meta({ description: "JSON { productName, logoFile, accentColor, supportUrl }." }),
+    templateDir: absPath
+      .nullable()
+      .default(null)
+      .meta({ description: "Replaces the built-in index.html and maintenance.css." }),
     languages: z
       .array(z.string().regex(/^[a-z]{2}(-[A-Z]{2})?$/))
       .min(1)
       .max(20)
-      .default(["en", "de"]),
+      .default(["en", "de"])
+      .meta({ description: "Built-in: en, de; others need templateDir catalogs." }),
   })
   .prefault({});
 
 const loggingSchema = z
   .strictObject({
-    level: z.enum(["debug", "info", "warn", "error"]).default("info"),
-    format: z.enum(["text", "json"]).default("text"),
+    level: z
+      .enum(["debug", "info", "warn", "error"])
+      .default("info")
+      .meta({ description: "Log level." }),
+    format: z
+      .enum(["text", "json"])
+      .default("text")
+      .meta({ description: "json: one object per line." }),
     redactPatterns: z
       .array(z.string().max(500).refine(isRegex, { message: "must be a valid regular expression" }))
       .max(32)
-      .default([]),
+      .default([])
+      .meta({ description: "Extra regular expressions whose matches are replaced by [redacted]." }),
   })
   .prefault({});
 
-const selfCheckSchema = z.strictObject({ enabled: z.boolean().default(false) }).prefault({});
+const selfCheckSchema = z
+  .strictObject({
+    enabled: z.boolean().default(false).meta({
+      description: "Report a newer sidecar release in GET /v1/state (never installs it).",
+    }),
+  })
+  .prefault({});
 
 // ---------------------------------------------------------------------------
 // The document
@@ -681,8 +844,15 @@ export const configObjectSchema = z
     docker: dockerSchema,
     release: releaseSchema,
     trust: trustSchema,
-    images: z.record(z.string().regex(IMAGE_KEY_PATTERN), imageOverrideSchema).default({}),
-    services: z.array(serviceSchema).min(1).max(32),
+    images: z
+      .record(z.string().regex(IMAGE_KEY_PATTERN), imageOverrideSchema)
+      .default({})
+      .meta({ description: "Optional mirror per image key of release.json." }),
+    services: z
+      .array(serviceSchema)
+      .min(1)
+      .max(32)
+      .meta({ description: "The managed Compose services." }),
     env: envSchema,
     hooks: hooksSchema,
     rollback: rollbackSchema,

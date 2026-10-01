@@ -308,6 +308,7 @@
               "properties": {
                 "host": {
                   "default": "gitlab.com",
+                  "description": "GitLab instance host (issuer https://<host>).",
                   "type": "string",
                   "pattern": "^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:[0-9]{1,5})?$"
                 },
@@ -318,6 +319,7 @@
                 },
                 "ciConfigPath": {
                   "default": ".gitlab-ci.yml",
+                  "description": "Path of the CI configuration in the project.",
                   "type": "string"
                 }
               },
@@ -411,6 +413,7 @@
     },
     "images": {
       "default": {},
+      "description": "Optional mirror per image key of release.json.",
       "type": "object",
       "propertyNames": {
         "type": "string",
@@ -487,16 +490,19 @@
                     "properties": {
                       "type": {
                         "type": "string",
-                        "const": "http"
+                        "const": "http",
+                        "description": "An HTTP GET."
                       },
                       "url": {
                         "type": "string",
-                        "maxLength": 2000
+                        "maxLength": 2000,
+                        "description": "http(s) URL on the internal network."
                       },
                       "expectStatus": {
                         "default": [
                           200
                         ],
+                        "description": "Accepted statuses.",
                         "minItems": 1,
                         "maxItems": 20,
                         "type": "array",
@@ -508,6 +514,7 @@
                       },
                       "bodyContains": {
                         "default": null,
+                        "description": "Text the body must contain.",
                         "anyOf": [
                           {
                             "type": "string",
@@ -521,6 +528,7 @@
                       },
                       "sendToken": {
                         "default": false,
+                        "description": "Send Authorization: Bearer <token>.",
                         "type": "boolean"
                       }
                     },
@@ -535,11 +543,13 @@
                     "properties": {
                       "type": {
                         "type": "string",
-                        "const": "command"
+                        "const": "command",
+                        "description": "A command in a service container."
                       },
                       "service": {
                         "type": "string",
-                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$",
+                        "description": "Runs with docker compose exec -T in this service."
                       },
                       "argv": {
                         "minItems": 1,
@@ -548,10 +558,12 @@
                         "items": {
                           "type": "string",
                           "maxLength": 4096
-                        }
+                        },
+                        "description": "1 to 64 arguments, no shell."
                       },
                       "expectExitCode": {
                         "default": 0,
+                        "description": "Expected exit code.",
                         "type": "integer",
                         "minimum": 0,
                         "maximum": 255
@@ -578,7 +590,8 @@
           "imageVar"
         ],
         "additionalProperties": false
-      }
+      },
+      "description": "The managed Compose services."
     },
     "env": {
       "default": {},
@@ -616,6 +629,7 @@
           "properties": {
             "type": {
               "default": "none",
+              "description": "Backup taken before the update.",
               "type": "string",
               "enum": [
                 "none",
@@ -632,6 +646,7 @@
             },
             "user": {
               "default": null,
+              "description": "null: the container's own env (POSTGRES_USER; MySQL: root).",
               "anyOf": [
                 {
                   "type": "string",
@@ -644,6 +659,7 @@
             },
             "database": {
               "default": null,
+              "description": "null: POSTGRES_DB / MYSQL_DATABASE / MARIADB_DATABASE.",
               "anyOf": [
                 {
                   "type": "string",
@@ -656,6 +672,7 @@
             },
             "flavor": {
               "default": "auto",
+              "description": "MySQL family; auto: mariadb-dump if present, else mysqldump.",
               "type": "string",
               "enum": [
                 "auto",
@@ -665,6 +682,7 @@
             },
             "volumes": {
               "default": [],
+              "description": "volume: Compose volume names (project prefix resolved).",
               "maxItems": 16,
               "type": "array",
               "items": {
@@ -692,10 +710,12 @@
                   "items": {
                     "type": "string",
                     "maxLength": 4096
-                  }
+                  },
+                  "description": "1 to 64 arguments, no shell."
                 },
                 "envKeys": {
                   "default": [],
+                  "description": "Env keys whose values are passed to the backup container.",
                   "maxItems": 32,
                   "type": "array",
                   "items": {
@@ -705,6 +725,7 @@
                 },
                 "network": {
                   "default": "project",
+                  "description": "project: the project's default network.",
                   "type": "string",
                   "enum": [
                     "project",
@@ -713,6 +734,7 @@
                 },
                 "outputFile": {
                   "default": "backup.out",
+                  "description": "File the container writes into /backup.",
                   "type": "string",
                   "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
                 }
@@ -725,6 +747,7 @@
             },
             "lockWaitSeconds": {
               "default": 120,
+              "description": "PostgreSQL --lock-wait-timeout.",
               "type": "integer",
               "minimum": 1,
               "maximum": 3600
@@ -735,6 +758,7 @@
               "properties": {
                 "ageRecipients": {
                   "default": [],
+                  "description": "age1... public keys; the verified backup is encrypted.",
                   "maxItems": 16,
                   "type": "array",
                   "items": {
@@ -751,12 +775,14 @@
               "properties": {
                 "keep": {
                   "default": 3,
+                  "description": "Newest backups kept.",
                   "type": "integer",
                   "minimum": 1,
                   "maximum": 50
                 },
                 "maxAgeDays": {
                   "default": 14,
+                  "description": "Older backups are deleted; 0: no age limit.",
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 3650
@@ -766,12 +792,14 @@
             },
             "timeoutSeconds": {
               "default": 7200,
+              "description": "For creating the backup.",
               "type": "integer",
               "minimum": 60,
               "maximum": 86400
             },
             "verifyTimeoutSeconds": {
               "default": 1800,
+              "description": "For verifying the backup.",
               "type": "integer",
               "minimum": 60,
               "maximum": 86400
@@ -785,6 +813,7 @@
           "properties": {
             "type": {
               "default": "none",
+              "description": "How the schema state is read before and after the update.",
               "type": "string",
               "enum": [
                 "none",
@@ -795,11 +824,13 @@
               ]
             },
             "service": {
+              "description": "Database service (postgres, mysql).",
               "type": "string",
               "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
             },
             "user": {
               "default": null,
+              "description": "As in hooks.backup.",
               "anyOf": [
                 {
                   "type": "string",
@@ -812,6 +843,7 @@
             },
             "database": {
               "default": null,
+              "description": "As in hooks.backup.",
               "anyOf": [
                 {
                   "type": "string",
@@ -824,6 +856,7 @@
             },
             "preset": {
               "default": null,
+              "description": "Query of a migration tool (docs/hooks.md); exclusive with query.",
               "anyOf": [
                 {
                   "type": "string",
@@ -848,6 +881,7 @@
             },
             "query": {
               "default": null,
+              "description": "One SELECT returning one value; exclusive with preset.",
               "anyOf": [
                 {
                   "type": "string",
@@ -860,6 +894,7 @@
             },
             "fingerprint": {
               "default": true,
+              "description": "Append a hash of the schema catalog (columns) to the value.",
               "type": "boolean"
             },
             "command": {
@@ -867,7 +902,8 @@
               "properties": {
                 "service": {
                   "type": "string",
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$",
+                  "description": "Runs with docker compose exec -T."
                 },
                 "argv": {
                   "minItems": 1,
@@ -876,7 +912,8 @@
                   "items": {
                     "type": "string",
                     "maxLength": 4096
-                  }
+                  },
+                  "description": "1 to 64 arguments, no shell."
                 }
               },
               "required": [
@@ -890,10 +927,12 @@
               "properties": {
                 "url": {
                   "type": "string",
-                  "maxLength": 2000
+                  "maxLength": 2000,
+                  "description": "GET with the token."
                 },
                 "jsonPath": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "Path of the value in the JSON body."
                 }
               },
               "required": [
@@ -904,6 +943,7 @@
             },
             "timeoutSeconds": {
               "default": 60,
+              "description": "Per probe.",
               "type": "integer",
               "minimum": 1,
               "maximum": 600
@@ -913,6 +953,7 @@
         },
         "migrate": {
           "default": null,
+          "description": "Optional separate migration run before the services start.",
           "anyOf": [
             {
               "type": "object",
@@ -929,10 +970,12 @@
                   "items": {
                     "type": "string",
                     "maxLength": 4096
-                  }
+                  },
+                  "description": "1 to 64 arguments, no shell."
                 },
                 "timeoutSeconds": {
                   "default": 1800,
+                  "description": "For the migration run.",
                   "type": "integer",
                   "minimum": 10,
                   "maximum": 86400
@@ -955,6 +998,7 @@
           "properties": {
             "type": {
               "default": "none",
+              "description": "The app check; none gives the warning health_without_app_check.",
               "type": "string",
               "enum": [
                 "none",
@@ -967,16 +1011,19 @@
               "properties": {
                 "url": {
                   "type": "string",
-                  "maxLength": 2000
+                  "maxLength": 2000,
+                  "description": "http(s) URL on the internal network."
                 },
                 "sendToken": {
                   "default": true,
+                  "description": "Send Authorization: Bearer <token> (the app may reveal its version).",
                   "type": "boolean"
                 },
                 "expectStatus": {
                   "default": [
                     200
                   ],
+                  "description": "Accepted statuses.",
                   "minItems": 1,
                   "maxItems": 20,
                   "type": "array",
@@ -988,6 +1035,7 @@
                 },
                 "versionJsonPath": {
                   "default": null,
+                  "description": "Path of the version in the JSON body; null: no version check.",
                   "type": [
                     "string",
                     "null"
@@ -995,13 +1043,15 @@
                 },
                 "conditions": {
                   "default": [],
+                  "description": "{ path, equals } pairs that must hold in the body.",
                   "maxItems": 20,
                   "type": "array",
                   "items": {
                     "type": "object",
                     "properties": {
                       "path": {
-                        "type": "string"
+                        "type": "string",
+                        "description": "Path in the JSON body."
                       },
                       "equals": {
                         "anyOf": [
@@ -1018,7 +1068,8 @@
                           {
                             "type": "null"
                           }
-                        ]
+                        ],
+                        "description": "Value the path must hold."
                       }
                     },
                     "required": [
@@ -1030,6 +1081,7 @@
                 },
                 "requestTimeoutSeconds": {
                   "default": 5,
+                  "description": "Per request.",
                   "type": "integer",
                   "minimum": 1,
                   "maximum": 60
@@ -1045,7 +1097,8 @@
               "properties": {
                 "service": {
                   "type": "string",
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$",
+                  "description": "Runs with docker compose exec -T; exit 0 is healthy."
                 },
                 "argv": {
                   "minItems": 1,
@@ -1054,10 +1107,12 @@
                   "items": {
                     "type": "string",
                     "maxLength": 4096
-                  }
+                  },
+                  "description": "1 to 64 arguments, no shell."
                 },
                 "versionFromStdout": {
                   "default": false,
+                  "description": "The first line of stdout is the version.",
                   "type": "boolean"
                 }
               },
@@ -1069,6 +1124,7 @@
             },
             "afterGroup": {
               "default": null,
+              "description": "Start group after which the app check runs first; null: the lowest.",
               "anyOf": [
                 {
                   "type": "integer",
@@ -1082,30 +1138,35 @@
             },
             "intervalSeconds": {
               "default": 2,
+              "description": "Between polls.",
               "type": "integer",
               "minimum": 1,
               "maximum": 60
             },
             "timeoutSeconds": {
               "default": 600,
+              "description": "Per wait.",
               "type": "integer",
               "minimum": 10,
               "maximum": 7200
             },
             "versionMismatchLimit": {
               "default": 3,
+              "description": "Healthy answers with another version before health.version_mismatch.",
               "type": "integer",
               "minimum": 1,
               "maximum": 20
             },
             "crashLimit": {
               "default": 2,
+              "description": "Restarting/exited observations before health.crashed.",
               "type": "integer",
               "minimum": 1,
               "maximum": 10
             },
             "waitForDockerHealth": {
               "default": "auto",
+              "description": "auto: wait for healthy where a Docker healthcheck exists.",
               "type": "string",
               "enum": [
                 "auto",
@@ -1115,6 +1176,7 @@
             },
             "servicesGraceSeconds": {
               "default": 60,
+              "description": "For all managed services to be running after the last group.",
               "type": "integer",
               "minimum": 5,
               "maximum": 600
@@ -1128,6 +1190,7 @@
           "properties": {
             "checks": {
               "default": [],
+              "description": "http or command checks after the app is healthy.",
               "maxItems": 20,
               "type": "array",
               "items": {
@@ -1137,16 +1200,19 @@
                     "properties": {
                       "type": {
                         "type": "string",
-                        "const": "http"
+                        "const": "http",
+                        "description": "An HTTP GET."
                       },
                       "url": {
                         "type": "string",
-                        "maxLength": 2000
+                        "maxLength": 2000,
+                        "description": "http(s) URL on the internal network."
                       },
                       "expectStatus": {
                         "default": [
                           200
                         ],
+                        "description": "Accepted statuses.",
                         "minItems": 1,
                         "maxItems": 20,
                         "type": "array",
@@ -1158,6 +1224,7 @@
                       },
                       "bodyContains": {
                         "default": null,
+                        "description": "Text the body must contain.",
                         "anyOf": [
                           {
                             "type": "string",
@@ -1171,6 +1238,7 @@
                       },
                       "sendToken": {
                         "default": false,
+                        "description": "Send Authorization: Bearer <token>.",
                         "type": "boolean"
                       }
                     },
@@ -1185,11 +1253,13 @@
                     "properties": {
                       "type": {
                         "type": "string",
-                        "const": "command"
+                        "const": "command",
+                        "description": "A command in a service container."
                       },
                       "service": {
                         "type": "string",
-                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$",
+                        "description": "Runs with docker compose exec -T in this service."
                       },
                       "argv": {
                         "minItems": 1,
@@ -1198,10 +1268,12 @@
                         "items": {
                           "type": "string",
                           "maxLength": 4096
-                        }
+                        },
+                        "description": "1 to 64 arguments, no shell."
                       },
                       "expectExitCode": {
                         "default": 0,
+                        "description": "Expected exit code.",
                         "type": "integer",
                         "minimum": 0,
                         "maximum": 255
@@ -1219,18 +1291,21 @@
             },
             "retries": {
               "default": 5,
+              "description": "Attempts per check.",
               "type": "integer",
               "minimum": 1,
               "maximum": 20
             },
             "intervalSeconds": {
               "default": 3,
+              "description": "Between attempts.",
               "type": "integer",
               "minimum": 1,
               "maximum": 60
             },
             "timeoutSeconds": {
               "default": 300,
+              "description": "For all checks.",
               "type": "integer",
               "minimum": 10,
               "maximum": 1800
@@ -1281,6 +1356,7 @@
         },
         "tokenFile": {
           "default": null,
+          "description": "Token for the archive download; null: release.feed.tokenFile.",
           "type": [
             "string",
             "null"
@@ -1288,12 +1364,14 @@
         },
         "maxArchiveMb": {
           "default": 200,
+          "description": "Largest source archive.",
           "type": "integer",
           "minimum": 1,
           "maximum": 2048
         },
         "build": {
           "default": {},
+          "description": "How each image key is built in source mode.",
           "type": "object",
           "propertyNames": {
             "type": "string",
@@ -1304,14 +1382,17 @@
             "properties": {
               "context": {
                 "default": ".",
+                "description": "Build context inside the archive.",
                 "type": "string"
               },
               "dockerfile": {
                 "default": "Dockerfile",
+                "description": "Dockerfile path.",
                 "type": "string"
               },
               "target": {
                 "default": null,
+                "description": "Dockerfile target.",
                 "anyOf": [
                   {
                     "type": "string",
@@ -1324,6 +1405,7 @@
               },
               "buildArgs": {
                 "default": {},
+                "description": "Build arguments; {version} is replaced.",
                 "type": "object",
                 "propertyNames": {
                   "type": "string",
@@ -1347,6 +1429,7 @@
       "properties": {
         "keepPreviousImages": {
           "default": 1,
+          "description": "Older images per repository kept besides the current and rollback image.",
           "type": "integer",
           "minimum": 0,
           "maximum": 10
@@ -1360,12 +1443,14 @@
       "properties": {
         "maxLeadSeconds": {
           "default": 1209600,
+          "description": "Latest start a request may ask for.",
           "type": "integer",
           "minimum": 0,
           "maximum": 2592000
         },
         "lateStartToleranceSeconds": {
           "default": 600,
+          "description": "A run found later than this after startsAt is not started.",
           "type": "integer",
           "minimum": 0,
           "maximum": 86400
@@ -1379,24 +1464,28 @@
       "properties": {
         "pullSeconds": {
           "default": 1800,
+          "description": "Per image pull.",
           "type": "integer",
           "minimum": 60,
           "maximum": 14400
         },
         "stopSeconds": {
           "default": 60,
+          "description": "compose stop -t.",
           "type": "integer",
           "minimum": 1,
           "maximum": 600
         },
         "upSeconds": {
           "default": 900,
+          "description": "Per compose up.",
           "type": "integer",
           "minimum": 30,
           "maximum": 3600
         },
         "composeSeconds": {
           "default": 120,
+          "description": "For config, ps, logs and inspect calls.",
           "type": "integer",
           "minimum": 10,
           "maximum": 600
@@ -1410,10 +1499,12 @@
       "properties": {
         "enabled": {
           "default": true,
+          "description": "Serve GET /public/v1/status.",
           "type": "boolean"
         },
         "showVersions": {
           "default": false,
+          "description": "Include versions in the public status.",
           "type": "boolean"
         }
       },
@@ -1425,10 +1516,12 @@
       "properties": {
         "enabled": {
           "default": false,
+          "description": "Serve the page under /public/v1/maintenance/.",
           "type": "boolean"
         },
         "brandingFile": {
           "default": null,
+          "description": "JSON { productName, logoFile, accentColor, supportUrl }.",
           "type": [
             "string",
             "null"
@@ -1436,6 +1529,7 @@
         },
         "templateDir": {
           "default": null,
+          "description": "Replaces the built-in index.html and maintenance.css.",
           "type": [
             "string",
             "null"
@@ -1446,6 +1540,7 @@
             "en",
             "de"
           ],
+          "description": "Built-in: en, de; others need templateDir catalogs.",
           "minItems": 1,
           "maxItems": 20,
           "type": "array",
@@ -1463,6 +1558,7 @@
       "properties": {
         "level": {
           "default": "info",
+          "description": "Log level.",
           "type": "string",
           "enum": [
             "debug",
@@ -1473,6 +1569,7 @@
         },
         "format": {
           "default": "text",
+          "description": "json: one object per line.",
           "type": "string",
           "enum": [
             "text",
@@ -1481,6 +1578,7 @@
         },
         "redactPatterns": {
           "default": [],
+          "description": "Extra regular expressions whose matches are replaced by [redacted].",
           "maxItems": 32,
           "type": "array",
           "items": {
@@ -1497,6 +1595,7 @@
       "properties": {
         "enabled": {
           "default": false,
+          "description": "Report a newer sidecar release in GET /v1/state (never installs it).",
           "type": "boolean"
         }
       },
