@@ -1,13 +1,19 @@
 import { appendFileSync } from "node:fs";
 import * as fs from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { parseArgs } from "node:util";
 import { FeedReader, type RemoteFeedType } from "@cicd-updater/feed";
 import {
+  channelOf,
   compareVersions,
+  isPlainVersion,
+  isValidTagPattern,
   keylessIdentity,
   parseReleaseDocument,
   type TrustMode,
+  versionFromTag,
 } from "@cicd-updater/protocol";
+import { buildImages } from "./build.js";
 import { checkTag } from "./changelog.js";
 import {
   parseCosignVersion,
@@ -27,7 +33,9 @@ import {
 } from "./document.js";
 import { envCheck } from "./env-check.js";
 import { exec as defaultExec, type Exec, expectOk } from "./exec.js";
+import { builtImagesSchema, createIndexes } from "./images.js";
 import { publishRelease, type ReleaseHostType } from "./publish.js";
+import { generateSboms } from "./sbom.js";
 import { runSmoke, type SmokeImage } from "./smoke.js";
 
 /**
@@ -61,6 +69,8 @@ export const RELEASE_USAGE = `Usage: cicd-updater release <command> [flags]
               [--key K] [--transparency-log]   (password: COSIGN_PASSWORD)
   json verify --file release.json [--bundle B] (--github-repository R --workflow W | --public-key P)
   sign-images --images <json|@file> --signing keyless|key|none [--key K] [--transparency-log]
+  sbom        --images <json|@file> --signing keyless|key|none [--key K] [--transparency-log]
+              [--out-dir sbom]   (syft per platform image; attested unless signing is none)
   upload      --host github|gitea|gitlab --api-url U --repository R --tag T --files a,b
               [--name N] [--notes-file F] [--prerelease] [--draft]   (token: RELEASE_TOKEN or GITHUB_TOKEN)
   smoke       --compose-files a.yml --images <json> --image-vars <json> --health-url U
@@ -68,6 +78,14 @@ export const RELEASE_USAGE = `Usage: cicd-updater release <command> [flags]
               [--upgrade-from previous|none|V --feed-type T --feed-url U] [--updater-config F --updater-image I]
               [--timeout-seconds 600] [--report report.md]
   check-tag   --tag vX.Y.Z [--changelog CHANGELOG.md] [--package package.json ...]
+  build       --images <json|@file> --version V [--platforms linux/amd64,linux/arm64] [--no-push]
+              [--cache-from X] [--cache-to Y]
+              (images: {key: {repository, context, file, target, buildArgs}}; pushes by digest,
+              untagged; prints images for index and smoke-images for smoke)
+  version     --tag T [--tag-pattern v{version}]      (version, prerelease, channel of a tag)
+  index       --images <json|@file> --version V [--extra-tags a,b] [--allow-existing]
+              (images: {key: {repository, digests: [per-platform digests]}}; prints the
+              published images JSON for json create and sign-images)
 
 Flags for every command: --github-output <file> (write outputs for GitHub/Forgejo Actions)`;
 
@@ -172,6 +190,13 @@ export async function runReleaseCli(
         package: { type: "string", multiple: true },
         "github-output": { type: "string" },
         "tag-pattern": { type: "string" },
+        "extra-tags": { type: "string" },
+        platforms: { type: "string" },
+        "out-dir": { type: "string" },
+        "no-push": { type: "boolean", default: false },
+        "cache-from": { type: "string" },
+        "cache-to": { type: "string" },
+        "allow-existing": { type: "boolean", default: false },
       },
     });
   } catch (error) {
@@ -337,6 +362,19 @@ export async function runReleaseCli(
         );
         return 0;
       }
+      case "sbom": {
+        const images = publishedImagesSchema.parse(await readJsonArg(need("images")));
+        const mode = trustMode(str("signing"), deps.env);
+        const files = await generateSboms(deps.exec, images, {
+          mode,
+          key: str("key") ?? null,
+          transparencyLog: flags["transparency-log"] === true,
+          password: deps.env.COSIGN_PASSWORD ?? null,
+          outDir: str("out-dir") ?? "sbom",
+        });
+        output(deps, githubOutput, { files: files.join("\n") });
+        return 0;
+      }
       case "upload": {
         const host = need("host") as ReleaseHostType;
         if (!["github", "gitea", "gitlab"].includes(host)) {
@@ -439,6 +477,75 @@ export async function runReleaseCli(
           });
         }
         return result.ok ? 0 : 1;
+      }
+      case "version": {
+        const tag = need("tag");
+        const pattern = str("tag-pattern") ?? "v{version}";
+        if (!isValidTagPattern(pattern)) {
+          throw new UsageError("--tag-pattern must contain {version} exactly once");
+        }
+        const version = versionFromTag(pattern, tag);
+        if (!version || !isPlainVersion(version)) {
+          deps.io.err(`${tag} is not a release tag of the pattern ${pattern}.`);
+          return 1;
+        }
+        output(deps, githubOutput, {
+          version,
+          prerelease: String(version.includes("-")),
+          channel: channelOf(version),
+        });
+        return 0;
+      }
+      case "build": {
+        const version = need("version");
+        const created = await deps.exec(["git", "log", "-1", "--format=%cI"]);
+        const serverUrl = deps.env.GITHUB_SERVER_URL;
+        const repository = deps.env.GITHUB_REPOSITORY;
+        const built = await buildImages(deps.exec, {
+          images: (await readJsonArg(need("images"))) as Record<string, never>,
+          platforms: list(str("platforms") ?? "linux/amd64,linux/arm64"),
+          version,
+          revision: deps.env.GITHUB_SHA ?? deps.env.CI_COMMIT_SHA ?? null,
+          source:
+            serverUrl && repository
+              ? `${serverUrl}/${repository}`
+              : (deps.env.CI_PROJECT_URL ?? null),
+          created:
+            created.exitCode === 0 && created.stdout.trim()
+              ? created.stdout.trim()
+              : deps.now().toISOString(),
+          push: flags["no-push"] !== true,
+          cacheFrom: list(str("cache-from")),
+          cacheTo: list(str("cache-to")),
+          workDir: deps.env.RUNNER_TEMP ?? (await fs.mkdtemp(`${tmpdir()}/cicd-updater-build-`)),
+        });
+        output(deps, githubOutput, {
+          images: JSON.stringify(built),
+          "smoke-images": JSON.stringify(
+            Object.fromEntries(
+              Object.entries(built).map(([key, image]) => [
+                key,
+                { repository: image.repository, digest: image.digests[0] },
+              ]),
+            ),
+          ),
+        });
+        return 0;
+      }
+      case "index": {
+        const images = builtImagesSchema.parse(await readJsonArg(need("images")));
+        const version = need("version");
+        if (!isPlainVersion(version)) {
+          throw new UsageError("--version must be a plain version such as 1.4.0");
+        }
+        const published = await createIndexes(deps.exec, {
+          images,
+          tag: version,
+          extraTags: list(str("extra-tags")),
+          refuseExisting: flags["allow-existing"] !== true,
+        });
+        output(deps, githubOutput, { images: JSON.stringify(published) });
+        return 0;
       }
       default:
         throw new UsageError(`unknown command ${command}`);

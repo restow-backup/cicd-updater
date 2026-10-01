@@ -5,14 +5,20 @@ import { parseReleaseDocument } from "@cicd-updater/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
+  attestSbomArgs,
+  buildImages,
   checkTag,
   composeVariables,
+  createIndexes,
   createReleaseDocument,
   documentedVariables,
   type Exec,
   type ExecResult,
   envCheck,
+  generateSboms,
+  indexEntries,
   noRestartOverride,
+  ociLabels,
   parseCosignVersion,
   parsePolicy,
   projectOf,
@@ -745,5 +751,289 @@ describe("release CLI", () => {
       ),
     ).toBe(0);
     expect(none.out[0]).toBe("signing none: nothing was signed");
+  });
+});
+
+describe("indexes and versions", () => {
+  const AMD = `sha256:${"a".repeat(64)}`;
+  const ARM = `sha256:${"b".repeat(64)}`;
+  const INDEX = `sha256:${"c".repeat(64)}`;
+  const indexBody = (digests: string[]) =>
+    JSON.stringify({
+      mediaType: "application/vnd.oci.image.index.v1+json",
+      manifests: [
+        ...digests.map((digest, i) => ({
+          digest,
+          platform: { os: "linux", architecture: i === 0 ? "amd64" : "arm64" },
+        })),
+        {
+          digest: `sha256:${"d".repeat(64)}`,
+          platform: { os: "unknown", architecture: "unknown" },
+        },
+      ],
+    });
+  const registry = (existing: string | null) => {
+    const calls: string[][] = [];
+    const exec: Exec = async (argv) => {
+      calls.push([...argv]);
+      const args = argv.slice(3);
+      if (args[0] === "inspect" && args[1] === "--raw") {
+        if (args[2]?.endsWith(":1.4.0")) {
+          return existing === null
+            ? { exitCode: 1, stdout: "", stderr: "ERROR: ghcr.io/acme/notes:1.4.0: not found" }
+            : { exitCode: 0, stdout: existing, stderr: "" };
+        }
+        if (args[2]?.endsWith(INDEX)) {
+          return { exitCode: 0, stdout: indexBody([AMD, ARM]), stderr: "" };
+        }
+        const manifest = { mediaType: "application/vnd.oci.image.manifest.v1+json", layers: [] };
+        return { exitCode: 0, stdout: JSON.stringify(manifest), stderr: "" };
+      }
+      if (args[0] === "inspect") {
+        return { exitCode: 0, stdout: JSON.stringify({ digest: INDEX }), stderr: "" };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    };
+    return { exec, calls };
+  };
+  const images = { app: { repository: "ghcr.io/acme/notes", digests: [ARM, AMD] } };
+
+  it("creates one tagged index per image from the platform digests", async () => {
+    const { exec, calls } = registry(null);
+    const published = await createIndexes(exec, { images, tag: "1.4.0", extraTags: ["1"] });
+    expect(published).toEqual({
+      app: {
+        repository: "ghcr.io/acme/notes",
+        tag: "1.4.0",
+        digest: INDEX,
+        platforms: ["linux/amd64", "linux/arm64"],
+      },
+    });
+    expect(calls).toContainEqual([
+      "docker",
+      "buildx",
+      "imagetools",
+      "create",
+      "--tag",
+      "ghcr.io/acme/notes:1.4.0",
+      "--tag",
+      "ghcr.io/acme/notes:1",
+      `ghcr.io/acme/notes@${AMD}`,
+      `ghcr.io/acme/notes@${ARM}`,
+    ]);
+  });
+
+  it("refuses a version tag with other content and accepts a re-run with the same images", async () => {
+    const other = registry(indexBody([`sha256:${"e".repeat(64)}`, ARM]));
+    await expect(createIndexes(other.exec, { images, tag: "1.4.0" })).rejects.toThrow(
+      /already exists with other content/,
+    );
+    expect(other.calls.some((call) => call[3] === "create")).toBe(false);
+    const same = registry(indexBody([AMD, ARM]));
+    await expect(createIndexes(same.exec, { images, tag: "1.4.0" })).resolves.toMatchObject({
+      app: { digest: INDEX },
+    });
+    await expect(createIndexes(same.exec, { images, tag: "1.4.0; rm" })).rejects.toThrow(
+      /not a valid image tag/,
+    );
+    expect(indexEntries(JSON.parse(indexBody([AMD])))).toEqual([
+      { digest: AMD, platform: "linux/amd64" },
+    ]);
+  });
+
+  it("derives the version from a tag and writes outputs", async () => {
+    const output = path.join(dir, "out");
+    const deps = (env: Record<string, string>) => ({
+      env,
+      io: { out: () => {}, err: () => {} },
+      exec: registry(null).exec,
+      fetch,
+      now: () => new Date(),
+    });
+    expect(
+      await runReleaseCli(["version", "--tag", "v1.5.0-rc.1"], deps({ GITHUB_OUTPUT: output })),
+    ).toBe(0);
+    expect(await fs.readFile(output, "utf8")).toBe(
+      "version=1.5.0-rc.1\nprerelease=true\nchannel=beta\n",
+    );
+    expect(
+      await runReleaseCli(
+        ["version", "--tag", "release-2.0.0", "--tag-pattern", "release-{version}"],
+        deps({}),
+      ),
+    ).toBe(0);
+    expect(await runReleaseCli(["version", "--tag", "main"], deps({}))).toBe(1);
+    const indexOutput = path.join(dir, "index-out");
+    expect(
+      await runReleaseCli(
+        ["index", "--images", JSON.stringify(images), "--version", "1.4.0"],
+        deps({ GITHUB_OUTPUT: indexOutput }),
+      ),
+    ).toBe(0);
+    expect(await fs.readFile(indexOutput, "utf8")).toMatch(/^images=\{"app":\{"repository"/);
+    expect(
+      await runReleaseCli(
+        ["index", "--images", JSON.stringify(images), "--version", "v1.4.0"],
+        deps({}),
+      ),
+    ).toBe(2);
+  });
+});
+
+describe("build", () => {
+  it("builds by digest with the OCI labels and without attestations", async () => {
+    const calls: string[][] = [];
+    const exec: Exec = async (argv) => {
+      calls.push([...argv]);
+      const metadata = argv[argv.indexOf("--metadata-file") + 1] as string;
+      await fs.writeFile(
+        metadata,
+        JSON.stringify({ "containerimage.digest": `sha256:${"f".repeat(64)}` }),
+      );
+      return { exitCode: 0, stdout: "", stderr: "" };
+    };
+    const built = await buildImages(exec, {
+      images: {
+        app: {
+          repository: "ghcr.io/acme/notes",
+          file: "docker/app.Dockerfile",
+          target: "runtime",
+          buildArgs: { APP_VERSION: "{version}" },
+        },
+      },
+      platforms: ["linux/amd64", "linux/arm64"],
+      version: "1.4.0",
+      revision: "a".repeat(40),
+      source: "https://github.com/acme/notes",
+      created: "2026-11-02T18:00:00Z",
+      push: true,
+      workDir: dir,
+    });
+    expect(built).toEqual({
+      app: { repository: "ghcr.io/acme/notes", digests: [`sha256:${"f".repeat(64)}`] },
+    });
+    expect(calls[0]).toEqual([
+      "docker",
+      "buildx",
+      "build",
+      "--platform",
+      "linux/amd64,linux/arm64",
+      "--file",
+      "docker/app.Dockerfile",
+      "--target",
+      "runtime",
+      "--build-arg",
+      "APP_VERSION=1.4.0",
+      "--label",
+      "org.opencontainers.image.version=1.4.0",
+      "--label",
+      `org.opencontainers.image.revision=${"a".repeat(40)}`,
+      "--label",
+      "org.opencontainers.image.source=https://github.com/acme/notes",
+      "--label",
+      "org.opencontainers.image.created=2026-11-02T18:00:00Z",
+      "--provenance=false",
+      "--sbom=false",
+      "--output",
+      "type=image,name=ghcr.io/acme/notes,push-by-digest=true,name-canonical=true,push=true",
+      "--metadata-file",
+      path.join(dir, "build-app.json"),
+      ".",
+    ]);
+    expect(ociLabels({ version: "1.0.0", revision: null, source: null, created: null })).toEqual([
+      "--label",
+      "org.opencontainers.image.version=1.0.0",
+    ]);
+  });
+
+  it("refuses other platforms, versions with a v and paths outside the repository", async () => {
+    const exec: Exec = async () => ({ exitCode: 0, stdout: "", stderr: "" });
+    const base = {
+      revision: null,
+      source: null,
+      created: null,
+      push: false,
+      workDir: dir,
+    };
+    const images = { app: { repository: "ghcr.io/acme/notes" } };
+    await expect(
+      buildImages(exec, { ...base, images, platforms: ["linux/s390x"], version: "1.0.0" }),
+    ).rejects.toThrow(/not supported/);
+    await expect(
+      buildImages(exec, { ...base, images, platforms: ["linux/amd64"], version: "v1.0.0" }),
+    ).rejects.toThrow(/plain version/);
+    await expect(
+      buildImages(exec, {
+        ...base,
+        images: { app: { repository: "ghcr.io/acme/notes", context: "../other" } },
+        platforms: ["linux/amd64"],
+        version: "1.0.0",
+      }),
+    ).rejects.toThrow(/relative path/);
+  });
+});
+
+describe("sbom", () => {
+  it("scans each platform image and attests it signed like the image", async () => {
+    const AMD = `sha256:${"a".repeat(64)}`;
+    const ARM = `sha256:${"b".repeat(64)}`;
+    const calls: { argv: string[]; env: Record<string, string> | undefined }[] = [];
+    const exec: Exec = async (argv, options) => {
+      calls.push({ argv: [...argv], env: options?.env as Record<string, string> | undefined });
+      if (argv[1] === "buildx") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            manifests: [
+              { digest: AMD, platform: { os: "linux", architecture: "amd64" } },
+              { digest: ARM, platform: { os: "linux", architecture: "arm64" } },
+              {
+                digest: `sha256:${"c".repeat(64)}`,
+                platform: { os: "unknown", architecture: "unknown" },
+              },
+            ],
+          }),
+          stderr: "",
+        };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    };
+    const files = await generateSboms(
+      exec,
+      { app: IMAGES.app },
+      {
+        mode: "key",
+        key: "cosign.key",
+        password: "secret-password",
+        outDir: dir,
+      },
+    );
+    expect(files).toEqual([
+      path.join(dir, "app-1.4.0-linux-amd64.spdx.json"),
+      path.join(dir, "app-1.4.0-linux-arm64.spdx.json"),
+    ]);
+    const attest = calls.find((call) => call.argv[1] === "attest");
+    expect(attest?.argv).toEqual([
+      "cosign",
+      "attest",
+      "--yes",
+      "--key",
+      "cosign.key",
+      "--tlog-upload=false",
+      "--type",
+      "spdxjson",
+      "--predicate",
+      path.join(dir, "app-1.4.0-linux-amd64.spdx.json"),
+      `ghcr.io/acme/notes@${AMD}`,
+    ]);
+    expect(attest?.env).toEqual({ COSIGN_PASSWORD: "secret-password" });
+    expect(calls.every((call) => !call.argv.includes("secret-password"))).toBe(true);
+    calls.length = 0;
+    await generateSboms(exec, { app: IMAGES.app }, { mode: "none", password: null, outDir: dir });
+    expect(calls.filter((call) => call.argv[0] === "syft")).toHaveLength(2);
+    expect(calls.some((call) => call.argv[1] === "attest")).toBe(false);
+    expect(() => attestSbomArgs("ghcr.io/acme/notes:1.4.0", "x.json", { mode: "keyless" })).toThrow(
+      /by digest/,
+    );
   });
 });

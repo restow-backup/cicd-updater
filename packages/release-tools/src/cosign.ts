@@ -100,6 +100,31 @@ export function verifyBlobArgs(
   return args;
 }
 
+/** The cosign argv that attaches an SPDX SBOM to an image as a signed attestation; null in mode none. */
+export function attestSbomArgs(
+  ref: string,
+  predicateFile: string,
+  options: SigningOptions,
+): string[] | null {
+  if (!IMAGE_BY_DIGEST.test(ref)) {
+    throw new Error(`Only images by digest are attested: ${ref}`);
+  }
+  if (options.mode === "none") {
+    return null;
+  }
+  return [
+    "cosign",
+    "attest",
+    "--yes",
+    ...keyArgs(options),
+    "--type",
+    "spdxjson",
+    "--predicate",
+    predicateFile,
+    ref,
+  ];
+}
+
 /** Run a signing argv (no-op for null), with the key password from the environment only. */
 export async function runSigning(
   exec: Exec,
