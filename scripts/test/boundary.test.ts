@@ -73,7 +73,7 @@ describe("package boundaries", () => {
   }
 
   it("keeps Node built-ins out of the SDK's runtime-agnostic entry points", async () => {
-    for (const entry of ["protocol.ts", "semver.ts", "messages.ts", "react.ts"]) {
+    for (const entry of ["protocol.ts", "semver.ts", "messages.ts", "maintenance.ts", "react.ts"]) {
       const file = path.join(ROOT, "packages", "sdk", "src", entry);
       const text = await fs.readFile(file, "utf8").catch(() => null);
       if (text === null) continue;

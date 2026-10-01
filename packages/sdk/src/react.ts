@@ -3,124 +3,35 @@ import {
   formatMessage,
   interpolate,
   type Messages,
-  type Phase,
   type PublicStatus,
 } from "@cicd-updater/protocol";
 import { createElement, useEffect, useRef, useState } from "react";
+import {
+  countdownOf,
+  formatCountdown,
+  type MaintenanceSnapshot,
+  MaintenanceTracker,
+  type MaintenanceView,
+  pollMaintenance,
+} from "./maintenance.js";
+
+// The React-free parts stay importable from /react as well.
+export {
+  countdownOf,
+  formatCountdown,
+  type MaintenanceSnapshot,
+  MaintenanceTracker,
+  type MaintenanceView,
+  pollMaintenance,
+} from "./maintenance.js";
 
 /**
  * Headless-first React parts for the maintenance banner and progress (design
  * 7.7). They talk only to the app's own endpoints (and, while the app is
  * down, to the public status through the edge), never to the sidecar.
  * Elements carry `data-state` and `className` hooks; no styling is imposed.
+ * The polling logic itself is React-free (`/maintenance`).
  */
-
-export type MaintenanceView = PublicStatus;
-
-export interface MaintenanceSnapshot {
-  view: MaintenanceView | null;
-  /** The app's own endpoint answered the last poll. */
-  apiReachable: boolean;
-  /** Server time minus local time, in ms (largest of the last 8 samples). */
-  offsetMs: number;
-  phase: Phase;
-  /** Seconds until a scheduled run starts; null otherwise. */
-  countdownSeconds: number | null;
-}
-
-const RELOAD_DELAY_MS = 2500;
-const RELOAD_GUARD_MS = 60_000;
-const STALE_FAILURE_MS = 24 * 3600 * 1000;
-
-/**
- * The polling logic without React (testable): clock offset, what to show and
- * when to reload. A failed run older than 24 hours is not announced to a page
- * that did not see it running; a succeeded run reloads the page once.
- */
-export class MaintenanceTracker {
-  private samples: number[] = [];
-  private seenRunning = new Set<string>();
-  private lastReload = Number.NEGATIVE_INFINITY;
-  snapshot: MaintenanceSnapshot = {
-    view: null,
-    apiReachable: true,
-    offsetMs: 0,
-    phase: "idle",
-    countdownSeconds: null,
-  };
-
-  /** Record an answer; returns whether the page should reload (after RELOAD_DELAY_MS). */
-  observe(
-    view: MaintenanceView | null,
-    localNow: number,
-    apiReachable: boolean,
-  ): { reload: boolean } {
-    if (view?.serverTime) {
-      this.samples.push(Date.parse(view.serverTime) - localNow);
-      this.samples = this.samples.slice(-8);
-    }
-    const offsetMs = this.samples.length > 0 ? Math.max(...this.samples) : 0;
-    let shown = view;
-    if (view?.runId && (view.phase === "scheduled" || view.phase === "running")) {
-      this.seenRunning.add(view.runId);
-    }
-    if (view?.phase === "failed" && view.runId && !this.seenRunning.has(view.runId)) {
-      const finished = view.finishedAt ? Date.parse(view.finishedAt) : Number.NaN;
-      if (Number.isFinite(finished) && localNow + offsetMs - finished > STALE_FAILURE_MS) {
-        shown = { ...view, phase: "idle" };
-      }
-    }
-    let reload = false;
-    if (
-      view?.phase === "succeeded" &&
-      view.runId &&
-      this.seenRunning.has(view.runId) &&
-      localNow - this.lastReload > RELOAD_GUARD_MS
-    ) {
-      this.lastReload = localNow;
-      this.seenRunning.delete(view.runId);
-      reload = true;
-    }
-    const phase = shown?.phase ?? "idle";
-    this.snapshot = {
-      view: shown,
-      apiReachable,
-      offsetMs,
-      phase,
-      countdownSeconds:
-        phase === "scheduled" && shown?.startsAt
-          ? countdownOf(shown.startsAt, offsetMs, localNow)
-          : null,
-    };
-    return { reload };
-  }
-
-  /** How long until the next poll. */
-  nextPollMs(idlePollMs: number, activePollMs: number): number {
-    const phase = this.snapshot.phase;
-    return phase === "scheduled" || phase === "running" || !this.snapshot.apiReachable
-      ? activePollMs
-      : idlePollMs;
-  }
-}
-
-/** Seconds until `startsAt` on the server's clock, never negative. */
-export function countdownOf(
-  startsAt: string,
-  offsetMs: number,
-  localNow: number = Date.now(),
-): number {
-  return Math.max(0, Math.round((Date.parse(startsAt) - (localNow + offsetMs)) / 1000));
-}
-
-/** `75` -> `1:15`, `3725` -> `1:02:05`. */
-export function formatCountdown(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  const two = (value: number) => String(value).padStart(2, "0");
-  return h > 0 ? `${h}:${two(m)}:${two(s)}` : `${m}:${two(s)}`;
-}
 
 export interface UseMaintenanceOptions {
   /** The app's own endpoint (every signed-in user may read it). */
@@ -133,48 +44,28 @@ export interface UseMaintenanceOptions {
 }
 
 export function useMaintenance(options: UseMaintenanceOptions): MaintenanceSnapshot {
-  const tracker = useRef(new MaintenanceTracker());
-  const [snapshot, setSnapshot] = useState<MaintenanceSnapshot>(tracker.current.snapshot);
+  const [snapshot, setSnapshot] = useState<MaintenanceSnapshot>(
+    () => new MaintenanceTracker().snapshot,
+  );
   const latest = useRef(options);
   latest.current = options;
 
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const poll = async (): Promise<void> => {
-      const { fetchMaintenance, fetchPublicStatus, onReload } = latest.current;
-      let view: MaintenanceView | null = null;
-      let reachable = true;
-      try {
-        view = await fetchMaintenance();
-      } catch {
-        reachable = false;
-        view = fetchPublicStatus ? await fetchPublicStatus().catch(() => null) : null;
-      }
-      if (cancelled) {
-        return;
-      }
-      const { reload } = tracker.current.observe(view, Date.now(), reachable);
-      setSnapshot(tracker.current.snapshot);
-      if (reload) {
-        setTimeout(() => (onReload ?? (() => globalThis.location?.reload()))(), RELOAD_DELAY_MS);
-      }
-      timer = setTimeout(
-        poll,
-        tracker.current.nextPollMs(
-          latest.current.idlePollMs ?? 30_000,
-          latest.current.activePollMs ?? 2000,
-        ),
-      );
-    };
-    void poll();
-    return () => {
-      cancelled = true;
-      if (timer) {
-        clearTimeout(timer);
-      }
-    };
-  }, []);
+  useEffect(
+    () =>
+      pollMaintenance({
+        fetchMaintenance: () => latest.current.fetchMaintenance(),
+        fetchPublicStatus: () => latest.current.fetchPublicStatus?.() ?? Promise.resolve(null),
+        onChange: setSnapshot,
+        onReload: () => (latest.current.onReload ?? (() => globalThis.location?.reload()))(),
+        get idlePollMs() {
+          return latest.current.idlePollMs;
+        },
+        get activePollMs() {
+          return latest.current.activePollMs;
+        },
+      }),
+    [],
+  );
 
   return snapshot;
 }
@@ -198,7 +89,13 @@ export interface PartProps {
   className?: string;
 }
 
-/** The banner every signed-in user sees: countdown, progress or result. Nothing while idle. */
+/**
+ * The banner every signed-in user sees: countdown, progress or result. Nothing while idle.
+ *
+ * Only the title and the state's text are a live region (`role="status"`), so screen
+ * readers announce phase changes; the countdown of a scheduled run ticks every second
+ * outside it (`data-part="countdown"`) and is read only when the user moves to it.
+ */
 export function MaintenanceBanner(props: PartProps) {
   const messages = props.messages ?? en;
   const { snapshot } = props;
@@ -212,9 +109,11 @@ export function MaintenanceBanner(props: PartProps) {
   }
   let title = messages.phases[snapshot.phase];
   let detail = formatMessage(messages, view.message);
+  let countdownText: string | null = null;
   if (snapshot.phase === "scheduled") {
     title = messages.ui.updateScheduled;
-    detail =
+    detail = "";
+    countdownText =
       countdown && countdown > 0
         ? interpolate(messages.ui.startsIn, { time: formatCountdown(countdown) })
         : messages.ui.startingNow;
@@ -229,14 +128,17 @@ export function MaintenanceBanner(props: PartProps) {
   return createElement(
     "div",
     {
-      role: "status",
-      "aria-live": "polite",
       className: props.className,
       "data-state": snapshot.phase,
       "data-outcome": view.outcome ?? undefined,
     },
-    createElement("strong", { "data-part": "title" }, title),
-    detail ? createElement("span", { "data-part": "detail" }, ` ${detail}`) : null,
+    createElement(
+      "span",
+      { role: "status", "aria-live": "polite", "aria-atomic": "true", "data-part": "announcement" },
+      createElement("strong", { "data-part": "title" }, title),
+      detail ? createElement("span", { "data-part": "detail" }, ` ${detail}`) : null,
+    ),
+    countdownText ? createElement("span", { "data-part": "countdown" }, ` ${countdownText}`) : null,
   );
 }
 

@@ -14,6 +14,7 @@ export default defineConfig({
     protocol: "src/protocol.ts",
     semver: "src/semver.ts",
     messages: "src/messages.ts",
+    maintenance: "src/maintenance.ts",
     react: "src/react.ts",
   },
   format: ["esm"],

@@ -6,9 +6,10 @@ cicd-updater. It contains:
 - a client for the sidecar's [HTTP API](http-api.md) and exactly-once journal ingestion;
 - a release feed check that cannot be turned into a tool for probing your internal network;
 - a token verifier for your app's health endpoint;
-- the protocol schemas and codes, SemVer helpers and English and German texts for every
-  code;
-- optional [React components](react.md) for the maintenance banner.
+- the protocol schemas and codes, SemVer helpers, and English and German texts for every
+  code and for an admin "Updates" page;
+- the maintenance banner's polling logic without a framework (`/maintenance`), and
+  optional [React components](react.md) built on it.
 
 Apps in other languages call the HTTP API directly; [app integration](app-integration.md)
 shows both ways.
@@ -23,6 +24,7 @@ shows both ways.
 - [Protocol (`/protocol`)](#protocol)
 - [SemVer (`/semver`)](#semver)
 - [Messages (`/messages`)](#messages)
+- [Maintenance polling (`/maintenance`)](#maintenance-polling)
 - [Error handling](#error-handling)
 - [Runtime requirements](#runtime-requirements)
 
@@ -63,7 +65,8 @@ Package facts:
 | `@restow-backup/cicd-updater/auth` | Node.js | `createTokenVerifier` |
 | `@restow-backup/cicd-updater/protocol` | any | zod schemas and types of every document, all codes, `progressOf`, `publicStatusOf`, catalogs |
 | `@restow-backup/cicd-updater/semver` | any | `parseVersion`, `compareVersions`, `isNewer`, `channelAllows`, `satisfiesRange` and more |
-| `@restow-backup/cicd-updater/messages` | any | `en` and `de` catalogs, `messagesFor`, `formatMessage`, `describeCode`, `interpolate` |
+| `@restow-backup/cicd-updater/messages` | any | `en` and `de` catalogs, `messagesFor`, `formatMessage`, `describeCode`, `interpolate`; the admin page texts `adminEn`, `adminDe`, `adminMessagesFor`, `formatLeadTime` |
+| `@restow-backup/cicd-updater/maintenance` | any | `pollMaintenance`, `MaintenanceTracker`, `countdownOf`, `formatCountdown`, without React |
 | `@restow-backup/cicd-updater/react` | browser | hooks and components, see [React](react.md) |
 
 The server-side entry points (main, `/feed`, `/auth`) use `node:` modules and run only in
@@ -532,6 +535,74 @@ formatMessage(t, { code: "run.scheduled", params: { version: "1.4.0", startsAt: 
 
 `messagesFor` takes the first language of a plain tag. For a full `Accept-Language` header,
 pick the language first.
+
+### Texts of an admin "Updates" page
+
+```ts
+import { adminMessagesFor, formatLeadTime, interpolate } from "@restow-backup/cicd-updater/messages";
+```
+
+The sentences an admin page needs besides the codes: headings, buttons, the
+`needs_attention` guidance, the schedule form and its lead times. The page of the
+[web app template](../templates/web-app/frontend/react/UpdatesPage.tsx) and its
+[vanilla widget](../templates/web-app/frontend/vanilla/updates-widget.js) use them.
+
+| Export | Meaning |
+| --- | --- |
+| `adminEn`, `adminDe` | texts of type `AdminMessages` |
+| `adminCatalogs` | `{ en: adminEn, de: adminDe }` |
+| `adminMessagesFor(locale)` | as `messagesFor`, for the admin texts |
+| `formatLeadTime(texts, seconds)` | `0` gives "now", `300` "in 5 minutes", `3600` "in 1 hour" |
+
+Texts with parameters use `{name}` placeholders: `versions` (`{from}`, `{to}`),
+`requestedBy` (`{label}`), `attentionBackup` (`{file}`), `releaseDigest` (`{sha}`),
+`scheduled` (`{version}`), `leadTimeMinutes` and `leadTimeHours` (`{count}`). Fill them with
+`interpolate`:
+
+```ts
+const texts = adminMessagesFor(user.locale);
+interpolate(texts.versions, { from: run.fromVersion ?? texts.unknownVersion, to: run.targetVersion });
+```
+
+For another language, write an object of type `AdminMessages` (start from a copy of
+`adminEn`). New texts may be added in 1.x minor releases; a custom object then fails to
+type-check until it has them, which is the reminder to translate them.
+
+## Maintenance polling
+
+```ts
+import { pollMaintenance, formatCountdown } from "@restow-backup/cicd-updater/maintenance";
+```
+
+The maintenance banner's logic without React, for Vue, Svelte, plain DOM or any runtime with
+`fetch` and timers. [React](react.md) builds its hook on it, and `/react` re-exports
+everything listed here.
+
+```ts
+const stop = pollMaintenance({
+  fetchMaintenance: () => fetch("/api/maintenance").then((r) => {
+    if (!r.ok) throw new Error(String(r.status));
+    return r.json();
+  }),
+  // While the app is down for the update: the sidecar's public status through your edge.
+  fetchPublicStatus: () => fetch("/public/v1/status").then((r) => (r.ok ? r.json() : null)),
+  onChange: (snapshot) => render(snapshot), // phase, view, countdownSeconds, offsetMs, apiReachable
+});
+// later: stop();
+```
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `fetchMaintenance` | required | the app's own maintenance endpoint; a rejection means "the app does not answer" |
+| `fetchPublicStatus` | none | used while `fetchMaintenance` fails |
+| `onChange(snapshot)` | required | called after every poll |
+| `idlePollMs`, `activePollMs` | `30000`, `2000` | interval while idle, and while a run is scheduled or running or the app is down |
+| `onReload` | `location.reload()` | called 2.5 seconds after a run this page saw running succeeded, once |
+
+The function returns `stop()`, which ends polling and drops a pending reload.
+`MaintenanceTracker`, `countdownOf` and `formatCountdown` are the same as in
+[React](react.md#maintenancetracker). A countdown that ticks every second belongs outside any
+`aria-live` region; announce only phase changes.
 
 ## Error handling
 

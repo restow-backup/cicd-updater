@@ -441,6 +441,44 @@ describe("maintenance", () => {
     expect(progress).not.toContain("Migrating");
   });
 
+  it("keeps the ticking countdown out of the live region", () => {
+    const markup = renderToStaticMarkup(
+      createElement(MaintenanceBanner, {
+        snapshot: {
+          view: scheduled,
+          apiReachable: true,
+          offsetMs: 0,
+          phase: "scheduled",
+          countdownSeconds: null,
+        },
+        className: "banner",
+      }),
+    );
+    const live =
+      /<span role="status" aria-live="polite" aria-atomic="true" data-part="announcement">(.*?)<\/span><span data-part="countdown">(.*?)<\/span>/.exec(
+        markup,
+      );
+    expect(live).not.toBeNull();
+    expect(live?.[1]).toContain("An update is scheduled.");
+    expect(live?.[1]).not.toMatch(/Starts in|Starting now|\d:\d\d/);
+    expect(live?.[2]).toMatch(/Starts in \d|Starting now/);
+    // The banner root itself is not live (only the announcement is).
+    expect(markup.startsWith('<div class="banner" data-state="scheduled">')).toBe(true);
+    const running = renderToStaticMarkup(
+      createElement(MaintenanceBanner, {
+        snapshot: {
+          view: { ...scheduled, phase: "running", message: { code: "run.starting", params: {} } },
+          apiReachable: true,
+          offsetMs: 0,
+          phase: "running",
+          countdownSeconds: null,
+        },
+      }),
+    );
+    expect(running).not.toContain('data-part="countdown"');
+    expect(running).toContain('data-part="announcement"');
+  });
+
   it("derives the app's maintenance view from the sidecar state, with versions", () => {
     expect(maintenanceViewOf(null, new Date(NOW)).phase).toBe("idle");
   });

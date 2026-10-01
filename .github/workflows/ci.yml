@@ -160,7 +160,7 @@ jobs:
           pnpm --filter @restow-backup/cicd-updater build
           cd packages/sdk
           pnpm pack --pack-destination "$RUNNER_TEMP"
-          for entry in "" /feed /auth /protocol /semver /messages /react; do
+          for entry in "" /feed /auth /protocol /semver /messages /maintenance /react; do
             node --input-type=module -e "await import('@restow-backup/cicd-updater$entry')"
           done
           tar -tzf "$RUNNER_TEMP"/restow-backup-cicd-updater-*.tgz | sort

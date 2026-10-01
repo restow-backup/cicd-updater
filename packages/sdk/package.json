@@ -55,6 +55,10 @@
       "types": "./dist/messages.d.ts",
       "import": "./dist/messages.js"
     },
+    "./maintenance": {
+      "types": "./dist/maintenance.d.ts",
+      "import": "./dist/maintenance.js"
+    },
     "./react": {
       "types": "./dist/react.d.ts",
       "import": "./dist/react.js"

@@ -22,7 +22,9 @@ import {
 ```
 
 Requirements: React 18 or newer (an optional peer dependency of the package). The entry
-point runs in the browser and does not need Node.js.
+point runs in the browser and does not need Node.js. Without React, use the same logic from
+[`/maintenance`](sdk.md#maintenance-polling) (`pollMaintenance`, `MaintenanceTracker`,
+`countdownOf`, `formatCountdown`); `/react` re-exports those parts.
 
 ## Contents
 
@@ -123,7 +125,7 @@ polling. Polling starts in an effect, so server-side rendering yields the idle s
 | Reload after success | when an answer shows `succeeded` for a run that this page saw `scheduled` or `running`, the hook calls `onReload` after 2.5 seconds, so the user sees the result first. It reloads at most once per run and never twice within 60 seconds. A page opened after the update finished does not reload |
 | Stale failures | a `failed` run that this page never saw scheduled or running, and that finished more than 24 hours ago (server clock), is shown as `idle`. A failure the page saw, or a recent one, is shown |
 | Finished runs | a finished run stays visible until an admin acknowledges it, because the sidecar keeps it as the current run until then |
-| Unmount | polling stops; a pending reload timer still fires |
+| Unmount | polling stops, and a pending reload is dropped |
 
 While your app is down, the view comes from the public status: it has no versions unless
 the operator enabled `publicStatus.showVersions`. See the
@@ -163,18 +165,25 @@ interface PartProps {
 Renders nothing while the phase is `idle` or there is no view. Otherwise:
 
 ```html
-<div role="status" aria-live="polite" class="…" data-state="scheduled" data-outcome="…">
-  <strong data-part="title">An update is scheduled.</strong>
-  <span data-part="detail"> Starts in 4:12</span>
+<div class="…" data-state="scheduled" data-outcome="…">
+  <span role="status" aria-live="polite" aria-atomic="true" data-part="announcement">
+    <strong data-part="title">An update is scheduled.</strong>
+    <span data-part="detail"> …</span>
+  </span>
+  <span data-part="countdown"> Starts in 4:12</span>
 </div>
 ```
 
-| Phase | Title | Detail |
-| --- | --- | --- |
-| `scheduled` | `ui.updateScheduled` | `ui.startsIn` with the ticking countdown, or `ui.startingNow` at 0 |
-| `running` | `ui.updateRunning` | the run message (for example "Creating the backup.") |
-| `succeeded` | `ui.updateSucceeded` | the run message ("Version 1.4.0 is now running.") |
-| `failed` | `ui.updateFailed` | the outcome text (for example "The update was rolled back; the previous version is running again.") |
+Only the announcement is a live region, so screen readers announce changes of the phase
+and of the run message. The countdown ticks every second outside it: it is read when the
+user moves to it, not every second.
+
+| Phase | Title | Detail | Countdown |
+| --- | --- | --- | --- |
+| `scheduled` | `ui.updateScheduled` | none | `ui.startsIn` with the ticking countdown, or `ui.startingNow` at 0 |
+| `running` | `ui.updateRunning` | the run message (for example "Creating the backup.") | |
+| `succeeded` | `ui.updateSucceeded` | the run message ("Version 1.4.0 is now running.") | |
+| `failed` | `ui.updateFailed` | the outcome text (for example "The update was rolled back; the previous version is running again.") | |
 
 `data-outcome` is present when the run has an outcome (`succeeded`, `unchanged`,
 `rolled_back`, `needs_attention`).
@@ -213,7 +222,9 @@ update, render it conditionally:
 
 ## `MaintenanceTracker`
 
-The logic of `useMaintenance` without React, for tests or other frameworks:
+The logic of `useMaintenance` without React, for tests or other frameworks (also exported
+by `/maintenance`, where [`pollMaintenance`](sdk.md#maintenance-polling) runs the loop
+below for you):
 
 ```ts
 class MaintenanceTracker {
