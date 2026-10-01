@@ -7,6 +7,7 @@ import { stringify } from "yaml";
 import {
   buildServer,
   type CliDeps,
+  dockerClientVersion,
   EXIT,
   maintenanceFiles,
   parseDuration,
@@ -252,5 +253,12 @@ describe("cli", () => {
     expect(await fs.readFile(path.join(target, "index.html"), "utf8")).toContain(
       'data-status-url="/public/v1/status"',
     );
+  });
+});
+
+describe("version", () => {
+  it("reads the Docker client version without a daemon", () => {
+    expect(dockerClientVersion("Docker version 29.8.2, build 7fc2dff")).toBe("29.8.2");
+    expect(dockerClientVersion("not available")).toBe("not available");
   });
 });

@@ -333,6 +333,12 @@ describe("none mode and registry credentials", () => {
 describe("cosign output classification", () => {
   it.each([
     ["Error: no signatures found", "signature_missing"],
+    // cosign 3.1.3, image signed with another key (e2e)
+    [
+      "Error: no matching attestations: failed to verify signature: could not verify envelope: accepted signatures do not match threshold, Found: 0, Expected 1",
+      "signature_invalid",
+    ],
+    ["Error: no matching attestations", "signature_missing"],
     ["Error: no matching signatures: none of the expected identities matched", "signature_invalid"],
     [
       "error verifying bundle: invalid signature when validating ASN.1 encoded signature",

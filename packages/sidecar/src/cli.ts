@@ -40,6 +40,11 @@ import { SIDECAR_VERSION } from "./version.js";
 
 export const EXIT = { ok: 0, failed: 1, usage: 2, unreachable: 3, config: 64, locked: 75 } as const;
 
+/** `Docker version 29.8.2, build 7fc2dff` -> `29.8.2` (other text unchanged). */
+export function dockerClientVersion(text: string): string {
+  return /^Docker version ([^,\s]+)/.exec(text)?.[1] ?? text;
+}
+
 export const USAGE = `Usage: cicd-updater <command> [flags]
 
   serve                              run the sidecar (default)
@@ -248,7 +253,8 @@ export async function runCli(
       cicdUpdater: SIDECAR_VERSION,
       api: API_VERSION,
       node: process.versions.node,
-      docker: await tool(["docker", "version", "--format", "{{.Client.Version}}"]),
+      // `docker version` needs the daemon; `docker --version` is the client alone.
+      docker: dockerClientVersion(await tool(["docker", "--version"])),
       compose: await tool(["docker", "compose", "version", "--short"]),
       buildx: await tool(["docker", "buildx", "version"]),
       cosign: await (async () => {

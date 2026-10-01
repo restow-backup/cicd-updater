@@ -98,9 +98,11 @@ the image's default command. On SIGTERM or SIGINT it stops within 8 seconds and 
 ### `version`
 
 Prints one line per component: `cicdUpdater` (the sidecar version), `api` (`1.0`), `node`,
-the first output line of the bundled `docker`, `docker compose`, `docker buildx` and `age`,
-and cosign's `gitVersion` (from `cosign version --json`); `not available` for a tool that does
-not run. Needs no configuration. `--json` prints an object with the same keys.
+the version of the bundled Docker CLI (from `docker --version`, so no daemon is needed), the
+first output line of `docker compose version --short`, `docker buildx version` and
+`age --version`, and cosign's `gitVersion` (from `cosign version --json`); `not available`
+for a tool that does not run. Needs no configuration. `--json` prints an object with the same
+keys.
 
 ### `config check [--file F]`
 

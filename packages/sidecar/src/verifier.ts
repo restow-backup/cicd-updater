@@ -93,15 +93,18 @@ export function classifyCosignFailure(text: string): VerifyFailure {
   if (/unauthorized|denied|forbidden|authentication required|\b401\b|\b403\b/.test(t)) {
     return "registry_unauthorized";
   }
-  if (/no signatures found|signature not found|no matching attestations|bundle not found/.test(t)) {
-    return "signature_missing";
-  }
+  // A signature that exists but does not verify. Checked before "missing": cosign 3 reports
+  // a wrong key as "no matching attestations: failed to verify signature: could not verify
+  // envelope: accepted signatures do not match threshold" (seen in the e2e with 3.1.3).
   if (
-    /none of the expected identities matched|expected identity|certificate identity|invalid signature|signature mismatch|failed to verify signature|no matching signatures|error verifying bundle|issuer mismatch|key mismatch/.test(
+    /none of the expected identities matched|expected identity|certificate identity|invalid signature|signature mismatch|failed to verify signature|could not verify envelope|do not match threshold|no matching signatures|error verifying bundle|issuer mismatch|key mismatch/.test(
       t,
     )
   ) {
     return "signature_invalid";
+  }
+  if (/no signatures found|signature not found|no matching attestations|bundle not found/.test(t)) {
+    return "signature_missing";
   }
   if (/manifest unknown|name unknown|not found/.test(t)) {
     return "image_not_found";

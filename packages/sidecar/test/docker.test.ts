@@ -273,6 +273,8 @@ describe("images", () => {
       keepCount: 1,
     });
     expect(removed).toEqual(["sha256:old2", "sha256:old3"]);
+    // Untagged images (pulled by digest) are listed only with --all on Docker 29.
+    expect(runner.argvs.find((argv) => argv[1] === "image" && argv[2] === "ls")).toContain("--all");
     expect(
       runner.argvs.filter((argv) => argv[1] === "image" && argv[2] === "rm").map((argv) => argv[3]),
     ).toEqual(["sha256:old2", "sha256:old3"]);

@@ -516,8 +516,10 @@ export class CliDocker implements DockerOps {
       if (!IMAGE_REFERENCE.test(repository)) {
         continue;
       }
+      // --all: Docker 29 hides untagged images from `image ls`, and images pulled as
+      // repository:tag@digest carry no tag (seen in the e2e).
       const list = await this.docker(
-        ["image", "ls", "--no-trunc", "--format", "{{json .}}", repository],
+        ["image", "ls", "--all", "--no-trunc", "--format", "{{json .}}", repository],
         { timeoutMs: this.quick },
       );
       if (list.exitCode !== 0) {
