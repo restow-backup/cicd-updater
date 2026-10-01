@@ -228,6 +228,31 @@ describe("createUpdaterClient", () => {
   });
 });
 
+describe("public status", () => {
+  it("reads the public status without sending the token", async () => {
+    const { requests, fetcher } = server(() =>
+      Response.json({
+        phase: "idle",
+        runId: null,
+        outcome: null,
+        startsAt: null,
+        startedAt: null,
+        finishedAt: null,
+        step: null,
+        steps: [],
+        progress: 0,
+        message: null,
+        failureCode: null,
+        serverTime: "2026-11-02T10:00:00.000Z",
+      }),
+    );
+    const client = createUpdaterClient({ url: "http://updater:8090", fetch: fetcher });
+    expect((await client.publicStatus()).phase).toBe("idle");
+    expect(requests[0]?.headers.get("authorization")).toBeNull();
+    expect(new URL(requests[0]?.url ?? "").pathname).toBe("/public/v1/status");
+  });
+});
+
 describe("syncJournal", () => {
   function event(n: number): JournalEvent {
     return {

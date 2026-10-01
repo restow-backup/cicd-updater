@@ -163,12 +163,13 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
     body?: unknown,
     slow = false,
     retried = false,
+    anonymous = false,
   ): Promise<unknown> {
     if (!base) {
       throw new UpdaterUnavailableError("disabled");
     }
-    const token = await tokens.get();
-    if (!token) {
+    const token = anonymous ? null : await tokens.get();
+    if (!token && !anonymous) {
       throw new UpdaterUnavailableError("no_token");
     }
     let response: Response;
@@ -176,7 +177,7 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
       response = await fetcher(`${base}${path}`, {
         method,
         headers: {
-          authorization: `Bearer ${token}`,
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
           accept: "application/json",
           ...(body === undefined ? {} : { "content-type": "application/json" }),
         },
@@ -366,7 +367,11 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
       return parse(backupsViewSchema, await request("GET", "/v1/backups")).backups;
     },
     async publicStatus() {
-      return parse(publicStatusSchema, await request("GET", "/public/v1/status"));
+      // Public and unauthenticated: the token is not sent.
+      return parse(
+        publicStatusSchema,
+        await request("GET", "/public/v1/status", undefined, false, false, true),
+      );
     },
   };
 }

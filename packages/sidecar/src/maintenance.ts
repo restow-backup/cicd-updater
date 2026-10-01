@@ -72,17 +72,31 @@ function catalogSubset(
   languages: readonly string[],
 ): Record<
   string,
-  Pick<Messages, "phases" | "outcomes" | "steps" | "messages" | "failures" | "ui">
+  Pick<
+    Messages,
+    "phases" | "outcomes" | "steps" | "messages" | "messagesWithoutVersion" | "failures" | "ui"
+  >
 > {
   const subset: Record<
     string,
-    Pick<Messages, "phases" | "outcomes" | "steps" | "messages" | "failures" | "ui">
+    Pick<
+      Messages,
+      "phases" | "outcomes" | "steps" | "messages" | "messagesWithoutVersion" | "failures" | "ui"
+    >
   > = {};
   for (const language of languages) {
     const catalog = catalogs[language];
     if (catalog) {
-      const { phases, outcomes, steps, messages, failures, ui } = catalog;
-      subset[language] = { phases, outcomes, steps, messages, failures, ui };
+      const { phases, outcomes, steps, messages, messagesWithoutVersion, failures, ui } = catalog;
+      subset[language] = {
+        phases,
+        outcomes,
+        steps,
+        messages,
+        messagesWithoutVersion: messagesWithoutVersion ?? {},
+        failures,
+        ui,
+      };
     }
   }
   return subset;
@@ -143,7 +157,12 @@ export const MAINTENANCE_JS = `(function () {
   }
   function text(message) {
     if (!message) { return ""; }
-    var template = Object.prototype.hasOwnProperty.call(t.messages, message.code) ? t.messages[message.code] : fill(t.ui.unknownCode, { code: message.code });
+    var has = function (table, key) { return Object.prototype.hasOwnProperty.call(table || {}, key); };
+    if (!has(t.messages, message.code)) { return fill(t.ui.unknownCode, { code: message.code }); }
+    var template = t.messages[message.code];
+    if (template.indexOf("{version}") >= 0 && !has(message.params, "version") && has(t.messagesWithoutVersion, message.code)) {
+      template = t.messagesWithoutVersion[message.code];
+    }
     return fill(template, message.params);
   }
   function countdown(startsAt) {

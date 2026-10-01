@@ -306,6 +306,12 @@ paths:
           schema:
             type: string
             pattern: ^r-\d{1,15}-[0-9a-f]{4}$
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunActionRequest"
       responses:
         "200":
           description: Cancelled.
@@ -346,6 +352,12 @@ paths:
           schema:
             type: string
             pattern: ^r-\d{1,15}-[0-9a-f]{4}$
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunActionRequest"
       responses:
         "200":
           description: Acknowledged.
@@ -1068,6 +1080,21 @@ components:
         - releases
         - nextInstallable
         - checkedAt
+    RequestedBy:
+      type: object
+      properties:
+        id:
+          anyOf:
+            - type: string
+              maxLength: 200
+            - type: "null"
+        label:
+          type: string
+          minLength: 1
+          maxLength: 200
+      required:
+        - label
+      additionalProperties: false
     RescheduleRequest:
       type: object
       properties:
@@ -1078,6 +1105,8 @@ components:
           type: string
           format: date-time
           pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
+        requestedBy:
+          $ref: "#/components/schemas/RequestedBy"
       additionalProperties: false
     Run:
       type: object
@@ -1298,6 +1327,12 @@ components:
         - images
         - configHash
         - log
+    RunActionRequest:
+      type: object
+      properties:
+        requestedBy:
+          $ref: "#/components/schemas/RequestedBy"
+      additionalProperties: false
     RunSummary:
       type: object
       properties:
@@ -1542,20 +1577,7 @@ components:
           format: date-time
           pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|([+-](?:[01]\d|2[0-3]):[0-5]\d)))$
         requestedBy:
-          type: object
-          properties:
-            id:
-              anyOf:
-                - type: string
-                  maxLength: 200
-                - type: "null"
-            label:
-              type: string
-              minLength: 1
-              maxLength: 200
-          required:
-            - label
-          additionalProperties: false
+          $ref: "#/components/schemas/RequestedBy"
         expect:
           type: object
           properties:

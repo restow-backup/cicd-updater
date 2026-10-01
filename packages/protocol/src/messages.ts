@@ -23,6 +23,11 @@ export interface Messages {
   outcomes: Record<Outcome, string>;
   steps: Record<StepId, string>;
   messages: Record<MessageCode, string>;
+  /**
+   * Texts for messages whose `version` parameter was withheld (the public status
+   * without publicStatus.showVersions). Optional in custom catalogs.
+   */
+  messagesWithoutVersion?: Partial<Record<MessageCode, string>>;
   failures: Record<FailureCode, string>;
   blockers: Record<BlockerCode, string>;
   warnings: Record<WarningCode, string>;
@@ -111,6 +116,14 @@ export const en: Messages = {
     "rollback.failed": "The rollback did not succeed.",
     "attention.stopping": "Stopping the application for the administrator.",
     "attention.backup_kept": "The backup was kept for a restore.",
+  },
+  messagesWithoutVersion: {
+    "run.scheduled": "An update is scheduled for {startsAt}.",
+    "run.rescheduled": "The update was moved to {startsAt}.",
+    "run.starting": "The update is starting.",
+    "run.succeeded": "The new version is now running.",
+    "step.fetch.downloading": "Downloading the source of the new version.",
+    "step.health.checking_app": "Waiting for the application to report the new version.",
   },
   failures: {
     "prepare.docker_unreachable": "Docker is not reachable.",
@@ -320,6 +333,14 @@ export const de: Messages = {
     "attention.stopping": "Die Anwendung wird für den Eingriff angehalten.",
     "attention.backup_kept": "Die Sicherung wurde für eine Wiederherstellung aufbewahrt.",
   },
+  messagesWithoutVersion: {
+    "run.scheduled": "Ein Update ist für {startsAt} geplant.",
+    "run.rescheduled": "Das Update wurde auf {startsAt} verschoben.",
+    "run.starting": "Das Update beginnt.",
+    "run.succeeded": "Die neue Version läuft jetzt.",
+    "step.fetch.downloading": "Der Quelltext der neuen Version wird heruntergeladen.",
+    "step.health.checking_app": "Warten, bis die Anwendung die neue Version meldet.",
+  },
   failures: {
     "prepare.docker_unreachable": "Docker ist nicht erreichbar.",
     "prepare.docker_too_old": "Die Docker Engine ist zu alt (API 1.43 oder neuer ist nötig).",
@@ -493,9 +514,13 @@ export function formatMessage(
   if (!message) {
     return "";
   }
-  const template = lookup(messages.messages, message.code);
+  let template = lookup(messages.messages, message.code);
   if (template === undefined) {
     return interpolate(messages.ui.unknownCode, { code: message.code });
+  }
+  // The public status withholds the version: use the text that does not need it.
+  if (template.includes("{version}") && !Object.hasOwn(message.params ?? {}, "version")) {
+    template = lookup(messages.messagesWithoutVersion ?? {}, message.code) ?? template;
   }
   // A failure code inside a message is shown as its text when known.
   const params: Record<string, string | number> = { ...(message.params ?? {}) };

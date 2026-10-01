@@ -22,12 +22,13 @@ import {
   publicStatusOf,
   type Run,
   rescheduleRequestSchema,
+  runActionRequestSchema,
   type StateView,
   scheduleRequestSchema,
   type UpdaterConfig,
 } from "@cicd-updater/protocol";
 import { type Context, Hono } from "hono";
-import { z } from "zod";
+import type { z } from "zod";
 import { isAuthorized } from "./auth.js";
 import { configView } from "./config-file.js";
 import { MAINTENANCE_CSP, type PageFile } from "./maintenance.js";
@@ -128,16 +129,7 @@ export interface ServerDeps {
   remoteAddress: (c: Context) => string | null;
 }
 
-const optionalActor = z
-  .strictObject({
-    requestedBy: z
-      .strictObject({
-        id: z.string().max(200).nullable().optional(),
-        label: z.string().min(1).max(200),
-      })
-      .optional(),
-  })
-  .optional();
+const optionalActor = runActionRequestSchema.optional();
 
 export function buildServer(deps: ServerDeps): Hono {
   const app = new Hono();
@@ -370,17 +362,15 @@ export function buildServer(deps: ServerDeps): Hono {
     if (!RUN_ID.test(runId)) return problem("not_found");
     const body = await readJson(c, true);
     if (!body.ok) return body.response;
-    const raw = (body.value ?? {}) as Record<string, unknown>;
-    const { requestedBy, ...when } = raw;
-    const parsed = rescheduleRequestSchema.safeParse(when);
-    const actor = optionalActor.safeParse(requestedBy === undefined ? undefined : { requestedBy });
-    if (!parsed.success || !actor.success) {
+    const parsed = rescheduleRequestSchema.safeParse(body.value ?? {});
+    if (!parsed.success) {
       return problem("invalid_request", "The reschedule request is not valid.", {
-        errors: parsed.success ? zodErrors(actor.error as z.ZodError) : zodErrors(parsed.error),
+        errors: zodErrors(parsed.error),
       });
     }
+    const { requestedBy, ...when } = parsed.data;
     try {
-      await deps.engine.reschedule(runId, parsed.data, actorOf(c, actor.data));
+      await deps.engine.reschedule(runId, when, actorOf(c, { requestedBy }));
     } catch (error) {
       if (error instanceof EngineError) return fromEngineError(error);
       throw error;

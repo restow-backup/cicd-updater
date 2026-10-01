@@ -236,6 +236,23 @@ describe("message catalogs", () => {
     expect(messagesFor("de-AT").locale).toBe("de");
     expect(messagesFor("fr").locale).toBe("en");
   });
+
+  it("never show a {version} placeholder when the public status withholds the version", () => {
+    for (const catalog of [en, de]) {
+      for (const code of MESSAGE_CODES) {
+        if (catalog.messages[code].includes("{version}")) {
+          const text = formatMessage(catalog, {
+            code,
+            params: { startsAt: "18:00", index: 1, total: 2 },
+          });
+          expect(text, `${catalog.locale} ${code}`).not.toContain("{version}");
+        }
+      }
+    }
+    expect(formatMessage(en, { code: "run.succeeded", params: {} })).toBe(
+      "The new version is now running.",
+    );
+  });
 });
 
 describe("generated contracts", () => {

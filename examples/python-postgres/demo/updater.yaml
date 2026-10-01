@@ -7,6 +7,11 @@ compose:
   profiles: [updater]
   files: [docker-compose.yml, demo/docker-compose.demo.yml]
 
+auth:
+  # The api runs as the app user (gid 10001, app/Dockerfile); the token file is
+  # root:10001, mode 0640.
+  tokenGroupId: 10001
+
 release:
   feed:
     type: file

@@ -5,6 +5,10 @@ version: 1
 compose:
   profiles: [updater]
 
+auth:
+  # The api runs as the node user (gid 1000); the token file is root:1000, mode 0640.
+  tokenGroupId: 1000
+
 release:
   feed:
     type: github

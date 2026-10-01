@@ -9,6 +9,7 @@ import {
   publicStatusSchema,
   releasesViewSchema,
   rescheduleRequestSchema,
+  runActionRequestSchema,
   runsViewSchema,
   scheduleRequestSchema,
   stateViewSchema,
@@ -267,6 +268,10 @@ export function openApiDocument(): Json {
         operationId: "cancelRun",
         summary: "Cancel a scheduled run, or abort a running one before the point of no return.",
         parameters: [runId],
+        requestBody: {
+          required: false,
+          content: json(components.ref(runActionRequestSchema, "input")),
+        },
         responses: {
           "200": ok("Cancelled.", stateViewSchema),
           "202": ok("Abort requested; the run stops at its next check point.", stateViewSchema),
@@ -281,6 +286,10 @@ export function openApiDocument(): Json {
         operationId: "acknowledgeRun",
         summary: "Clear a finished run (it stays in the history).",
         parameters: [runId],
+        requestBody: {
+          required: false,
+          content: json(components.ref(runActionRequestSchema, "input")),
+        },
         responses: {
           "200": ok("Acknowledged.", stateViewSchema),
           "404": problemResponse("not_found"),

@@ -30,16 +30,21 @@ import {
  * (design 6.6), so response schemas here are not strict.
  */
 
+/** Who asked, as the app names its user; the journal records it. */
+export const requestedBySchema = z
+  .strictObject({
+    id: z.string().max(200).nullable().optional(),
+    label: z.string().min(1).max(200),
+  })
+  .meta({ id: "RequestedBy" });
+
 export const scheduleRequestSchema = z
   .strictObject({
     version: z.string().max(64).regex(PLAIN_VERSION_PATTERN),
     mode: z.enum(UPDATE_MODES).default("image"),
     leadSeconds: z.number().int().min(0).optional(),
     startsAt: isoTime.optional(),
-    requestedBy: z.strictObject({
-      id: z.string().max(200).nullable().optional(),
-      label: z.string().min(1).max(200),
-    }),
+    requestedBy: requestedBySchema,
     expect: z.strictObject({ releaseSha256: sha256Hex.optional() }).optional(),
   })
   .refine((request) => request.leadSeconds === undefined || request.startsAt === undefined, {
@@ -54,12 +59,19 @@ export const rescheduleRequestSchema = z
   .strictObject({
     leadSeconds: z.number().int().min(0).optional(),
     startsAt: isoTime.optional(),
+    requestedBy: requestedBySchema.optional(),
   })
   .refine((request) => (request.leadSeconds === undefined) !== (request.startsAt === undefined), {
     message: "exactly one of leadSeconds and startsAt",
   })
   .meta({ id: "RescheduleRequest" });
 export type RescheduleRequest = z.infer<typeof rescheduleRequestSchema>;
+
+/** The optional body of cancel and acknowledge. */
+export const runActionRequestSchema = z
+  .strictObject({ requestedBy: requestedBySchema.optional() })
+  .meta({ id: "RunActionRequest" });
+export type RunActionRequest = z.infer<typeof runActionRequestSchema>;
 
 export const blockerSchema = z
   .object({

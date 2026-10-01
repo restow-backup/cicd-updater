@@ -11,7 +11,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/alembic.ini ./
 COPY app/migrations migrations
 COPY app/fastnotes fastnotes
-RUN useradd --system --uid 10001 app
+# A fixed gid: updater.yaml gives this group read access to the shared token.
+RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid 10001 app
 USER app
 EXPOSE 8000
 CMD ["sh", "-c", "alembic upgrade head && exec uvicorn fastnotes.main:app --host 0.0.0.0 --port 8000"]
