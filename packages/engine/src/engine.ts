@@ -1163,6 +1163,9 @@ export class UpdateEngine {
       code: "step.start.writing_env",
       details: { keys: Object.keys(assignments).join(", ") },
     });
+    // Persisted first: after a crash during the write, a restore is still attempted.
+    context.envWritten = true;
+    await this.deps.store.save();
     try {
       await envFile.apply(assignments);
     } catch (error) {
@@ -1572,7 +1575,8 @@ export class UpdateEngine {
     const context = this.context();
     const run = this.run();
     try {
-      if (context.previousEnv) {
+      // Only what the sidecar wrote is restored; a line someone else changed stays theirs.
+      if (context.previousEnv && context.envWritten) {
         await this.note({ code: "rollback.restoring_env" });
         await envFile.restore(context.previousEnv);
       }

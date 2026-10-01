@@ -196,6 +196,8 @@ export class FakeDockerOps implements DockerOps {
   honoursVariables = true;
   /** The sidecar's own service image: pinned, or following a writable key. */
   updaterImage: "pinned" | "follows" = "pinned";
+  /** Values Compose uses when a key is absent (`${APP_IMAGE:-default}`). */
+  readonly defaults: Record<string, string> = {};
   /** Labels of images that run (for the label source of the running version). */
   readonly imageLabels = new Map<string, Record<string, string>>();
   private readonly failures = new Map<string, ((call: number) => Error | null)[]>();
@@ -284,10 +286,10 @@ export class FakeDockerOps implements DockerOps {
       const line = (lines[index] as { text: string }).text;
       if (assignedKey(line) === key) {
         const value = assignedValue(line);
-        return value === "" ? null : value;
+        return value === "" ? (this.defaults[key] ?? null) : value;
       }
     }
-    return null;
+    return this.defaults[key] ?? null;
   }
 
   private async imageFor(

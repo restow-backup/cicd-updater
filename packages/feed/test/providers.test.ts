@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveFeed } from "../src/index.js";
 
-
 describe("github", () => {
   const feed = resolveFeed({ type: "github", url: "https://github.com/acme/notes" });
 

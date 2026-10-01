@@ -170,6 +170,8 @@ export const runContextSchema = z.object({
   applyAttempted: z.boolean(),
   /** Set when the run reached the point of no return (the start of the stop step). */
   ponrReached: z.boolean(),
+  /** Set once the new references were written into the env file. */
+  envWritten: z.boolean(),
   /** Set once the backup was created and verified. */
   backupFile: z.string().nullable(),
   plan: z
@@ -209,6 +211,7 @@ export function emptyRunContext(): RunContext {
     baseline: null,
     applyAttempted: false,
     ponrReached: false,
+    envWritten: false,
     backupFile: null,
     plan: null,
   };
