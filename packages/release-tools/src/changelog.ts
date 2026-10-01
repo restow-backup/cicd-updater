@@ -12,20 +12,26 @@ export interface TagCheck {
   problems: string[];
 }
 
-/** `## [1.0.0] - 2026-11-02` (Keep a Changelog). */
+/**
+ * `## [1.0.0] - 2026-11-02` (Keep a Changelog). `date` is null without a date or
+ * with a placeholder such as `YYYY-MM-DD`.
+ */
 export function changelogSection(
   changelog: string,
   version: string,
-): { date: string | null } | null {
+): { date: string | null; placeholder: string | null } | null {
   const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = new RegExp(
-    `^##\\s*\\[?${escaped}\\]?\\s*(?:[-–]\\s*(\\d{4}-\\d{2}-\\d{2}))?\\s*$`,
+    `^##\\s*\\[?${escaped}\\]?\\s*(?:[-–]\\s*(\\S+))?\\s*$`,
     "m",
   ).exec(changelog);
   if (!match) {
     return null;
   }
-  return { date: match[1] ?? null };
+  const text = match[1] ?? null;
+  const date =
+    text && /^\d{4}-\d{2}-\d{2}$/.test(text) && !Number.isNaN(Date.parse(text)) ? text : null;
+  return { date, placeholder: text !== null && date === null ? text : null };
 }
 
 export function checkTag(input: {
@@ -44,7 +50,9 @@ export function checkTag(input: {
     problems.push(`CHANGELOG.md has no section for ${version}.`);
   } else if (!section.date) {
     problems.push(
-      `The CHANGELOG.md section for ${version} has no date (## [${version}] - YYYY-MM-DD).`,
+      section.placeholder
+        ? `The CHANGELOG.md section for ${version} has no date yet (${section.placeholder}); set the release date (## [${version}] - YYYY-MM-DD with the real date).`
+        : `The CHANGELOG.md section for ${version} has no date (## [${version}] - YYYY-MM-DD).`,
     );
   }
   for (const [file, packageVersion] of Object.entries(input.packageVersions)) {

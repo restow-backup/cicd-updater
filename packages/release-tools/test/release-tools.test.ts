@@ -431,6 +431,15 @@ describe("tag checks", () => {
     ).toBe(false);
     expect(checkTag({ tag: "1.0.0", changelog, packageVersions: {} }).ok).toBe(false);
   });
+
+  it("names a placeholder date instead of a missing section", () => {
+    for (const heading of ["## [1.0.0] - YYYY-MM-DD", "## [1.0.0] - 2026-13-45"]) {
+      const result = checkTag({ tag: "v1.0.0", changelog: `${heading}\n`, packageVersions: {} });
+      expect(result.ok).toBe(false);
+      expect(result.problems).toHaveLength(1);
+      expect(result.problems[0]).toMatch(/has no date yet \((YYYY-MM-DD|2026-13-45)\)/);
+    }
+  });
 });
 
 describe("smoke", () => {

@@ -29294,13 +29294,15 @@ async function buildImages(exec2, options) {
 function changelogSection(changelog, version2) {
   const escaped = version2.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = new RegExp(
-    `^##\\s*\\[?${escaped}\\]?\\s*(?:[-\u2013]\\s*(\\d{4}-\\d{2}-\\d{2}))?\\s*$`,
+    `^##\\s*\\[?${escaped}\\]?\\s*(?:[-\u2013]\\s*(\\S+))?\\s*$`,
     "m"
   ).exec(changelog);
   if (!match) {
     return null;
   }
-  return { date: match[1] ?? null };
+  const text = match[1] ?? null;
+  const date5 = text && /^\d{4}-\d{2}-\d{2}$/.test(text) && !Number.isNaN(Date.parse(text)) ? text : null;
+  return { date: date5, placeholder: text !== null && date5 === null ? text : null };
 }
 function checkTag(input2) {
   const problems = [];
@@ -29314,7 +29316,7 @@ function checkTag(input2) {
     problems.push(`CHANGELOG.md has no section for ${version2}.`);
   } else if (!section.date) {
     problems.push(
-      `The CHANGELOG.md section for ${version2} has no date (## [${version2}] - YYYY-MM-DD).`
+      section.placeholder ? `The CHANGELOG.md section for ${version2} has no date yet (${section.placeholder}); set the release date (## [${version2}] - YYYY-MM-DD with the real date).` : `The CHANGELOG.md section for ${version2} has no date (## [${version2}] - YYYY-MM-DD).`
     );
   }
   for (const [file2, packageVersion] of Object.entries(input2.packageVersions)) {
