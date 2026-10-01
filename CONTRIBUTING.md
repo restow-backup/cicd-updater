@@ -22,6 +22,31 @@ pnpm lint:actions     # pins, inputs and shell scripts of actions, templates and
 The test runner uses at most three workers; `VITEST_MAX_WORKERS` (or `VITEST_MAX_FORKS`,
 `VITEST_MAX_THREADS`) can lower that.
 
+### End-to-end tests
+
+```sh
+docker buildx build -f docker/Dockerfile --build-arg VERSION=1.0.0 -t cicd-updater:e2e --load .
+pnpm e2e                          # every scenario file, one after the other (30 to 40 minutes)
+pnpm e2e scenarios/20-failures    # one file
+```
+
+The suite runs everything inside a privileged Docker-in-Docker container
+(`cicd-updater-e2e-<store>`, image cache in the volume of the same name): two
+distribution registries with TLS from a test CA generated per run, a BuildKit builder, the
+cosign key pairs (generated per run, never written outside that container) and one Compose
+project per scenario, torn down before the next. It changes nothing on your machine except
+that container and its cache volume. Options:
+
+| Variable | Effect |
+| --- | --- |
+| `E2E_IMAGE_STORE=containerd` | the inner daemon uses the containerd image store (default: classic) |
+| `E2E_SIDECAR_IMAGE` | the sidecar image to test (default `cicd-updater:e2e`) |
+| `E2E_SDK_TARBALL` | the SDK tarball for the node-postgres example (default: built and packed now) |
+| `E2E_KEEP_HOST=1`, `E2E_KEEP_PROJECTS=1` | keep the host container or the projects for debugging |
+
+Remove the host afterwards with `docker rm -f -v cicd-updater-e2e-classic` (and the cache
+volume `cicd-updater-e2e-classic` when you need the space).
+
 Generated files are committed and checked for drift in CI. After you change their sources,
 regenerate and commit them:
 
