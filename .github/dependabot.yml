@@ -1,0 +1,46 @@
+# Dependency updates: npm packages, the pinned GitHub Actions (workflows and the
+# composite actions under actions/) and the base images of docker/Dockerfile.
+# Updates are grouped per ecosystem and week; every PR runs the full CI.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      npm-dev:
+        dependency-type: development
+      npm-runtime:
+        dependency-type: production
+    commit-message:
+      prefix: "build(deps)"
+
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /actions/build
+      - /actions/smoke
+      - /actions/publish
+      - /actions/release-json
+      - /actions/release
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci(deps)"
+
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      images:
+        patterns: ["*"]
+    commit-message:
+      prefix: "build(deps)"

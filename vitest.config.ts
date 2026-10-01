@@ -23,5 +23,16 @@ export default defineConfig({
     maxWorkers: workerCap(),
     testTimeout: 20_000,
     hookTimeout: 20_000,
+    // `pnpm test:coverage` (CI): 90 % lines for the engine and the protocol (design 10.7).
+    coverage: {
+      provider: "v8",
+      include: ["packages/*/src/**/*.ts"],
+      exclude: ["packages/*/src/testing.ts", "packages/*/src/bin.ts"],
+      reporter: ["text-summary", "json-summary"],
+      thresholds: {
+        "packages/engine/src/**": { lines: 90 },
+        "packages/protocol/src/**": { lines: 90 },
+      },
+    },
   },
 });

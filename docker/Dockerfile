@@ -18,14 +18,13 @@
 # on the host anyway, and it must replace the project's env file with its
 # original owner and mode (docs/security.md). The build stage runs unprivileged.
 
-ARG NODE_IMAGE=node:24.21-alpine3.24@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1
-ARG DOCKER_CLI_IMAGE=docker:29.8.2-cli@sha256:b1805116a6a86cc591b5d5f60a910a0715cdcc9d18d866ad68b1457ead25c35c
-ARG COSIGN_IMAGE=ghcr.io/sigstore/cosign/cosign:v3.1.3@sha256:9e5c2f2edc34351160407ca3416c61855bdf9403c3c5936e0f0be7fc261611b8
+# The images are written out in the FROM lines (not as ARGs) so Dependabot can
+# propose updates of tag and digest together; the two Node.js lines move together.
 
 ########################################
 # build: the bundled sidecar
 ########################################
-FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS build
+FROM --platform=$BUILDPLATFORM node:24.21-alpine3.24@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS build
 ENV CI=true
 # The pnpm version of package.json (packageManager).
 RUN npm install --global pnpm@9.15.9 && pnpm --version
@@ -48,13 +47,13 @@ RUN pnpm --filter @cicd-updater/sidecar build \
 ########################################
 # tools: Docker CLI, buildx, compose and cosign, pinned by image digest
 ########################################
-FROM ${DOCKER_CLI_IMAGE} AS docker-cli
-FROM ${COSIGN_IMAGE} AS cosign
+FROM docker:29.8.2-cli@sha256:b1805116a6a86cc591b5d5f60a910a0715cdcc9d18d866ad68b1457ead25c35c AS docker-cli
+FROM ghcr.io/sigstore/cosign/cosign:v3.1.3@sha256:9e5c2f2edc34351160407ca3416c61855bdf9403c3c5936e0f0be7fc261611b8 AS cosign
 
 ########################################
 # runtime
 ########################################
-FROM ${NODE_IMAGE} AS runtime
+FROM node:24.21-alpine3.24@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runtime
 ARG VERSION=0.0.0-dev
 ARG REVISION=
 ARG CREATED=

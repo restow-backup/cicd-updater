@@ -1,0 +1,386 @@
+name: Release
+
+# The project's own release, built with its own actions from the same commit
+# (dogfooding, design 10.5). Runs when a tag v* is pushed:
+#
+#   verify        the tag is annotated and on main; CHANGELOG.md has a dated section
+#                 for the version; every package.json carries the version
+#   ci            the full CI on the tagged commit (reusable ci.yml)
+#   build         the sidecar image per architecture on native runners (./actions/build),
+#                 pushed by digest without a tag
+#   smoke         the pushed digests run on both architectures: tools, version, the
+#                 example configurations (the e2e core scenarios join here with e2e/)
+#   publish       index, tag X.Y.Z, cosign keyless, SBOM attestations (./actions/publish)
+#   release-json  release.json (image key "updater"), the SDK tarball, schemas, OpenAPI,
+#                 SHA256SUMS and their bundles; publishes the draft release last
+#                 (./actions/release-json)
+#   npm           only when npm trusted publishing is set up (repository variable
+#                 NPM_TRUSTED_PUBLISHING=true); otherwise skipped with a notice
+#   verify-release on a fresh runner: cosign verify of the image with the exact identity,
+#                 verify-blob of SHA256SUMS and release.json, `docker run <image> version`
+#
+# Nothing is tagged in the registry and no release is public before the smoke passed.
+# Only GITHUB_TOKEN and the workflow's OIDC identity are used. The package
+# ghcr.io/restow-backup/cicd-updater must be public (set once after the first push).
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/restow-backup/cicd-updater
+
+jobs:
+  verify:
+    name: Verify the tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: The tag is annotated and its commit is on main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          kind="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.type')"
+          if [ "$kind" != "tag" ]; then
+            echo "::error::$TAG is a lightweight tag; release tags are annotated (git tag -a or -s)."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$TAG points at $GITHUB_SHA, which is not on main."
+            exit 1
+          fi
+
+      - name: The changelog and the package versions agree with the tag
+        id: tag
+        run: >-
+          node actions/lib/release-tools.mjs check-tag
+          --tag "$GITHUB_REF_NAME"
+          --changelog CHANGELOG.md
+          --package package.json
+          --package packages/protocol/package.json
+          --package packages/feed/package.json
+          --package packages/engine/package.json
+          --package packages/sidecar/package.json
+          --package packages/release-tools/package.json
+          --package packages/sdk/package.json
+
+  ci:
+    name: CI
+    needs: verify
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  build:
+    name: Build ${{ matrix.arch }}
+    needs: verify
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build and push by digest
+        id: build
+        uses: ./actions/build
+        with:
+          image: ${{ env.IMAGE }}
+          file: docker/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            VERSION=${{ needs.verify.outputs.version }}
+            REVISION=${{ github.sha }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Keep the digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p digests
+          printf '%s' "$DIGEST" > "digests/updater-$ARCH"
+
+      - name: Upload the digest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digests-${{ matrix.arch }}
+          path: digests/*
+          if-no-files-found: error
+          retention-days: 7
+
+  smoke:
+    name: Smoke ${{ matrix.arch }}
+    needs: [verify, build]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download the digest
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: digests-${{ matrix.arch }}
+          path: digests
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: The pushed image runs
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          ref="$IMAGE@$(cat "digests/updater-$ARCH")"
+          docker pull "$ref"
+          docker run --rm "$ref" version | tee version.txt
+          grep -q "^cicdUpdater  $VERSION$" version.txt
+          label="$(docker image inspect "$ref" --format '{{ index .Config.Labels "org.opencontainers.image.version" }}')"
+          [ "$label" = "$VERSION" ] || { echo "::error::image label version is $label"; exit 1; }
+          for config in examples/*/updater.yaml; do
+            docker run --rm -v "$PWD/examples:/examples:ro" \
+              -e CICD_UPDATER_COMPOSE__PROJECT_DIR=/srv/example \
+              "$ref" config check --file "/$config" > /dev/null
+          done
+          docker run --rm -v "$PWD/packages/protocol/test/fixtures:/fixtures:ro" \
+            "$ref" release json validate --file /fixtures/release.json
+
+  publish:
+    name: Tag, sign and attest
+    needs: [verify, ci, smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      images: ${{ steps.publish.outputs.images }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download the digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: digests-*
+          path: digests
+          merge-multiple: true
+
+      - name: The platform digests
+        id: digests
+        run: |
+          printf 'images={"updater": {"repository": "%s", "digests": ["%s", "%s"]}}\n' \
+            "$IMAGE" "$(cat digests/updater-amd64)" "$(cat digests/updater-arm64)" >> "$GITHUB_OUTPUT"
+
+      - name: Tag, sign and attach SBOMs
+        id: publish
+        uses: ./actions/publish
+        with:
+          images: ${{ steps.digests.outputs.images }}
+          version: ${{ needs.verify.outputs.version }}
+          signing: keyless
+          registry: ghcr.io
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Keep the SBOMs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom
+          path: ${{ runner.temp }}/cicd-updater-sbom/*.spdx.json
+          if-no-files-found: error
+          retention-days: 7
+
+  release-json:
+    name: release.json and the GitHub release
+    needs: [verify, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Download the SBOMs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: sbom
+          path: ${{ runner.temp }}/sbom
+
+      - name: SDK tarball, schemas, OpenAPI and the release notes
+        id: assets
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm --filter @restow-backup/cicd-updater build
+          assets="$RUNNER_TEMP/assets"
+          mkdir -p "$assets"
+          (cd packages/sdk && pnpm pack --pack-destination "$assets")
+          cp schemas/*.schema.json openapi/updater-api.v1.yaml "$assets/"
+          cp "$RUNNER_TEMP"/sbom/*.spdx.json "$assets/"
+          awk -v v="$VERSION" '/^## \[/ { p = index($0, "[" v "]") > 0; next } p' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          {
+            echo
+            echo "Image: \`$IMAGE:$VERSION\` (linux/amd64, linux/arm64), signed keyless. Verify it before you run it:"
+            echo
+            echo '```'
+            echo "cosign verify $IMAGE:$VERSION \\"
+            echo "  --certificate-identity https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/tags/$GITHUB_REF_NAME \\"
+            echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com"
+            echo '```'
+          } >> "$RUNNER_TEMP/notes.md"
+          {
+            echo "files<<__FILES__"
+            find "$assets" -type f | sort
+            echo "__FILES__"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: release.json, checksums and the release
+        uses: ./actions/release-json
+        with:
+          images: ${{ needs.publish.outputs.images }}
+          version: ${{ needs.verify.outputs.version }}
+          signing: keyless
+          release-host: github
+          notes-file: ${{ runner.temp }}/notes.md
+          extra-files: ${{ steps.assets.outputs.files }}
+          checksums: "true"
+          release-name: cicd-updater ${{ needs.verify.outputs.version }}
+
+  npm:
+    name: npm (trusted publishing)
+    needs: [verify, release-json]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # npm provenance and trusted publishing
+    steps:
+      - name: Skipped unless trusted publishing is set up
+        if: vars.NPM_TRUSTED_PUBLISHING != 'true'
+        run: echo "::notice::npm publishing is not set up (repository variable NPM_TRUSTED_PUBLISHING); the SDK is on the GitHub release only."
+
+      - name: Checkout
+        if: vars.NPM_TRUSTED_PUBLISHING == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node (npm 11 for trusted publishing)
+        if: vars.NPM_TRUSTED_PUBLISHING == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Publish the tarball of the release
+        if: vars.NPM_TRUSTED_PUBLISHING == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          gh release download "$GITHUB_REF_NAME" --pattern "restow-backup-cicd-updater-$VERSION.tgz" --pattern SHA256SUMS
+          grep " restow-backup-cicd-updater-$VERSION.tgz\$" SHA256SUMS | sha256sum -c -
+          tag=latest
+          if [ "$PRERELEASE" = "true" ]; then tag=next; fi
+          npm publish "restow-backup-cicd-updater-$VERSION.tgz" --provenance --access public --tag "$tag"
+
+  verify-release:
+    name: Verify the published release
+    needs: [verify, release-json]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+
+      - name: Image, checksums and release.json verify with the exact identity
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/tags/$GITHUB_REF_NAME"
+          issuer=https://token.actions.githubusercontent.com
+          github=(--certificate-github-workflow-repository "$GITHUB_REPOSITORY"
+            --certificate-github-workflow-ref "refs/tags/$GITHUB_REF_NAME"
+            --certificate-github-workflow-trigger push)
+          cosign verify "$IMAGE:$VERSION" --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" "${github[@]}" > /dev/null
+          mkdir -p release && cd release
+          gh release download "$GITHUB_REF_NAME"
+          cosign verify-blob --bundle SHA256SUMS.sigstore.json --certificate-identity "$identity" \
+            --certificate-oidc-issuer "$issuer" "${github[@]}" SHA256SUMS
+          sha256sum -c SHA256SUMS
+          node ../actions/lib/release-tools.mjs json verify --file release.json \
+            --github-repository "$GITHUB_REPOSITORY" --workflow .github/workflows/release.yml
+          digest="$(node -p 'JSON.parse(require("fs").readFileSync("release.json","utf8")).images.updater.digest')"
+          docker run --rm "$IMAGE@$digest" version

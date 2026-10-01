@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   BackupStore,
   buildImagePlan,
+  CatalogError,
   clip,
   initialState,
   parseState,
@@ -16,6 +17,7 @@ import {
   repositoryOf,
   StatusStore,
   sensitiveEnvValues,
+  systemClock,
   versionForFileName,
 } from "../src/index.js";
 import {
@@ -408,5 +410,72 @@ describe("running version", () => {
     } finally {
       await h.cleanup();
     }
+  });
+});
+
+describe("releases view", () => {
+  it("lists newer releases of the channel with their refusals and the next installable one", async () => {
+    const h = await createHarness();
+    try {
+      h.publish("1.1.0");
+      h.publish("1.2.0", (doc) => {
+        doc.upgrade.minimumFromVersion = "1.1.0";
+      });
+      h.catalog.add("1.3.0", null);
+      h.publish("0.9.0");
+      h.publish("2.0.0-beta.1");
+      const view = await h.releases.releasesView(true);
+      expect(view.channel).toBe("stable");
+      expect(view.running).toBe("1.0.0");
+      expect(view.releases.map((release) => [release.version, release.refusals])).toEqual([
+        ["1.3.0", ["no_release_document"]],
+        ["1.2.0", ["below_minimum_version"]],
+        ["1.1.0", []],
+        ["0.9.0", ["not_newer"]],
+      ]);
+      expect(view.releases.find((release) => release.version === "1.1.0")).toMatchObject({
+        verified: false,
+        releaseSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+        minimumFromVersion: null,
+      });
+      expect(view.nextInstallable).toBe("1.1.0");
+
+      h.catalog.listError = new CatalogError("feed_unavailable", "rate_limited", "rate limited");
+      await expect(h.releases.releasesView(true)).rejects.toMatchObject({
+        code: "feed_unavailable",
+        extensions: { feedError: "rate_limited" },
+      });
+    } finally {
+      await h.cleanup();
+    }
+  });
+});
+
+describe("system clock", () => {
+  it("sleeps, wakes early on abort and runs and cancels timers", async () => {
+    const started = Date.now();
+    await systemClock.sleep(5);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(4);
+    const aborted = new AbortController();
+    aborted.abort();
+    await systemClock.sleep(60_000, aborted.signal);
+    const later = new AbortController();
+    const sleeping = systemClock.sleep(60_000, later.signal);
+    later.abort();
+    await sleeping;
+    let ran = 0;
+    await new Promise<void>((resolve) => {
+      systemClock.setTimer(() => {
+        ran += 1;
+        resolve();
+      }, 1);
+    });
+    const cancelled = systemClock.setTimer(() => {
+      ran += 10;
+    }, 1);
+    cancelled.cancel();
+    await systemClock.sleep(10);
+    expect(ran).toBe(1);
+    expect(systemClock.now()).toBeInstanceOf(Date);
   });
 });

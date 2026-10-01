@@ -1,0 +1,211 @@
+name: CI
+
+# Every push and pull request, and the release workflow before it builds
+# (workflow_call). Jobs (design 10.7):
+#
+#   lint       Biome; actionlint on the workflows; the composite actions, templates
+#              and example workflows (pins, inputs, every run script through shellcheck)
+#   typecheck  tsc for every package and the scripts
+#   unit       Vitest with the coverage gate (90 % lines for engine and protocol)
+#   generated  JSON Schemas, OpenAPI, the configuration reference, THIRD_PARTY_NOTICES
+#              and the action bundle are regenerated and must equal the committed files;
+#              the SDK builds and every subpath import resolves
+#   image      the sidecar image builds on amd64 and arm64 (native runners), its tools
+#              run, and the example configurations pass `config check` inside it
+#
+# Every third-party action is pinned to a full commit SHA with its version in a comment.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Biome
+        run: pnpm lint
+
+      - name: Actions, templates and example workflows (pins, inputs, shellcheck)
+        run: pnpm lint:actions
+
+      - name: Shell scripts
+        run: shellcheck docker/*.sh
+
+      - name: actionlint
+        # Built from source at a fixed version; the Go checksum database verifies it.
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.9 -color
+
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: tsc
+        run: pnpm typecheck
+
+  unit:
+    name: Unit tests (Node ${{ matrix.node }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Vitest with the coverage gate
+        if: matrix.node == '24'
+        run: pnpm test:coverage
+
+      - name: Vitest
+        if: matrix.node != '24'
+        run: pnpm test
+
+  generated:
+    name: Generated files and the SDK build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Schemas, OpenAPI and the configuration reference
+        run: pnpm check:generated
+
+      - name: THIRD_PARTY_NOTICES
+        run: pnpm check:notices
+
+      - name: The action bundle equals its sources
+        run: |
+          pnpm bundle
+          if ! git diff --exit-code -- actions/lib; then
+            echo "::error::actions/lib/release-tools.mjs is out of date: run pnpm bundle and commit it."
+            exit 1
+          fi
+
+      - name: The SDK builds, packs and every entry point imports
+        run: |
+          set -euo pipefail
+          pnpm --filter @restow-backup/cicd-updater build
+          cd packages/sdk
+          pnpm pack --pack-destination "$RUNNER_TEMP"
+          for entry in "" /feed /auth /protocol /semver /messages /react; do
+            node --input-type=module -e "await import('@restow-backup/cicd-updater$entry')"
+          done
+          tar -tzf "$RUNNER_TEMP"/restow-backup-cicd-updater-*.tgz | sort
+
+  image:
+    name: Image ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            VERSION=0.0.0-ci
+            REVISION=${{ github.sha }}
+          tags: cicd-updater:ci
+          load: true
+          push: false
+          cache-from: type=gha,scope=image-${{ matrix.arch }}
+          cache-to: type=gha,scope=image-${{ matrix.arch }},mode=max
+
+      - name: Tools run and the examples pass config check
+        run: |
+          set -euo pipefail
+          docker run --rm cicd-updater:ci version
+          docker run --rm --entrypoint cosign cicd-updater:ci version
+          docker run --rm --entrypoint age cicd-updater:ci --version
+          for config in examples/*/updater.yaml; do
+            echo "== $config"
+            docker run --rm -v "$PWD/examples:/examples:ro" \
+              -e CICD_UPDATER_COMPOSE__PROJECT_DIR=/srv/example \
+              cicd-updater:ci config check --file "/$config"
+          done
+          docker image inspect cicd-updater:ci --format '{{json .Config.Labels}}'
