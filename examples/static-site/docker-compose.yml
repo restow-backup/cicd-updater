@@ -1,0 +1,42 @@
+# Acme Handbook, a static site updated by cicd-updater (integration level 1: the CLI only).
+#
+#   web      nginx with the site; publishes the HTTP port
+#   updater  the cicd-updater sidecar, OPT-IN (docker compose --profile updater up -d)
+
+name: handbook
+
+services:
+  web:
+    image: ${WEB_IMAGE:?set WEB_IMAGE in .env}
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-8080}:8080"
+    networks: [internal, public]
+
+  updater:
+    profiles: ["updater"]
+    image: ${CICD_UPDATER_IMAGE:?set CICD_UPDATER_IMAGE in .env}
+    restart: unless-stopped
+    stop_grace_period: 30s
+    labels:
+      io.github.restow-backup.cicd-updater.role: sidecar
+    environment:
+      CICD_UPDATER_CONFIG: ${PROJECT_DIR:?set PROJECT_DIR in .env}/updater.yaml
+      CICD_UPDATER_COMPOSE__PROJECT_DIR: ${PROJECT_DIR:?set PROJECT_DIR in .env}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${PROJECT_DIR:?set PROJECT_DIR in .env}:${PROJECT_DIR:?set PROJECT_DIR in .env}
+      - updater-state:/state
+      - updater-shared:/shared
+      - updater-verify:/verify
+    networks: [internal]
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  updater-state:
+  updater-shared:
+  updater-verify:
+
+networks:
+  internal:
+  public:

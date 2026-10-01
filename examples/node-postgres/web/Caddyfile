@@ -1,0 +1,31 @@
+# The Notes edge. While the api is down during an update, every page and API
+# request shows the updater's maintenance page instead of a bare 502; the page
+# polls the public status through the same edge and reloads when the new version
+# answers (docs/maintenance-page.md).
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	encode gzip
+
+	# The updater's public status and maintenance page (no token, no versions).
+	handle /public/v1/* {
+		reverse_proxy updater:8090
+	}
+
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+
+	handle {
+		root * /srv/public
+		file_server
+	}
+
+	handle_errors 502 503 504 {
+		rewrite * /public/v1/maintenance/
+		reverse_proxy updater:8090
+	}
+}

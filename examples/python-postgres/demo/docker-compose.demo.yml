@@ -1,0 +1,9 @@
+# Override for the update demo only: the sidecar reads demo/updater.yaml and the
+# local file feed that ../update-demo.sh writes, without a registry login.
+services:
+  updater:
+    environment:
+      CICD_UPDATER_CONFIG: ${PROJECT_DIR:?}/demo/updater.yaml
+      CICD_UPDATER_DOCKER__REGISTRY_AUTH_FILE: !reset null
+    volumes:
+      - ${PROJECT_DIR:?}/demo/feed:/demo-feed:ro

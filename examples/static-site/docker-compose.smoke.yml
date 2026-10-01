@@ -1,0 +1,5 @@
+# Used only by the release smoke test on the CI runner: the site on the runner's loopback.
+services:
+  web:
+    ports: !override
+      - "127.0.0.1:8080:8080"

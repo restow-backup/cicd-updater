@@ -1,0 +1,71 @@
+# Release workflow of the FastNotes example (Forgejo Actions, cosign key pair,
+# Forgejo container registry, Forgejo releases).
+#
+# Secrets: REGISTRY_TOKEN (write:package), RELEASE_TOKEN (write:repository),
+# COSIGN_KEY (the private key, PEM text) and COSIGN_PASSWORD. The public key
+# cosign.pub goes to the host (updater.yaml: trust.key.publicKeyFiles).
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  APP_IMAGE: git.example.com/acme/fastnotes
+  REGISTRY: git.example.com
+
+jobs:
+  release:
+    runs-on: docker
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: https://github.com/actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the app image (amd64 and arm64, QEMU)
+        id: app
+        uses: https://github.com/restow-backup/cicd-updater/actions/build@v1.0.0
+        with:
+          image: ${{ env.APP_IMAGE }}
+          file: app/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+          cache: none
+
+      - name: Smoke test
+        uses: https://github.com/restow-backup/cicd-updater/actions/smoke@v1.0.0
+        with:
+          compose-files: docker-compose.yml,docker-compose.smoke.yml
+          images: '{"app": {"repository": "${{ env.APP_IMAGE }}", "digest": "${{ steps.app.outputs.digest }}"}}'
+          image-vars: '{"app": "APP_IMAGE"}'
+          health-url: http://127.0.0.1:8000/health
+          upgrade-from: previous
+          feed-type: gitea
+          feed-url: ${{ github.server_url }}/${{ github.repository }}
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Tag, sign and attach SBOMs
+        id: publish
+        uses: https://github.com/restow-backup/cicd-updater/actions/publish@v1.0.0
+        with:
+          images: '{"app": {"repository": "${{ env.APP_IMAGE }}", "digests": ["${{ steps.app.outputs.digest }}"]}}'
+          signing: key
+          cosign-key: ${{ secrets.COSIGN_KEY }}
+          cosign-password: ${{ secrets.COSIGN_PASSWORD }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+
+      - name: release.json and the release
+        uses: https://github.com/restow-backup/cicd-updater/actions/release-json@v1.0.0
+        with:
+          images: ${{ steps.publish.outputs.images }}
+          signing: key
+          cosign-key: ${{ secrets.COSIGN_KEY }}
+          cosign-password: ${{ secrets.COSIGN_PASSWORD }}
+          release-host: gitea
+          api-url: ${{ github.server_url }}
+          token: ${{ secrets.RELEASE_TOKEN }}

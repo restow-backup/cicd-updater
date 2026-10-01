@@ -23,6 +23,9 @@ inputs:
   build-args:
     description: Build arguments, one KEY=VALUE per line.
     default: ""
+  version-build-arg:
+    description: Name of a build argument that receives the plain version (empty - none).
+    default: VERSION
   version:
     description: Plain release version (1.4.0); empty means derived from the pushed tag through tag-pattern.
     default: ""
@@ -164,7 +167,9 @@ runs:
         file: ${{ inputs.file }}
         target: ${{ inputs.target }}
         platforms: ${{ inputs.platforms }}
-        build-args: ${{ inputs.build-args }}
+        build-args: |
+          ${{ inputs.version-build-arg != '' && format('{0}={1}', inputs.version-build-arg, steps.prep.outputs.version) || '' }}
+          ${{ inputs.build-args }}
         labels: |
           org.opencontainers.image.version=${{ steps.prep.outputs.version }}
           org.opencontainers.image.revision=${{ github.sha }}

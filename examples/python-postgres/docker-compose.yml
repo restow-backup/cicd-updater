@@ -1,0 +1,87 @@
+# FastNotes, an example app updated by cicd-updater (integration level 2).
+#
+#   api      FastAPI; runs the Alembic migrations at container start
+#   edge     nginx: proxies the API and shows the sidecar's maintenance page while
+#            the API is down during an update (not managed by the updater)
+#   db       PostgreSQL 17
+#   updater  the cicd-updater sidecar, OPT-IN (docker compose --profile updater up -d)
+
+name: fastnotes
+
+services:
+  api:
+    image: ${APP_IMAGE:?set APP_IMAGE in .env}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-fastnotes}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-fastnotes}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?set ADMIN_TOKEN in .env}
+      UPDATER_URL: ${UPDATER_URL:-http://updater:8090}
+      UPDATER_TOKEN_FILE: /run/cicd-updater/token
+    volumes:
+      - updater-shared:/run/cicd-updater:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks: [internal]
+
+  edge:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-8080}:8080"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    networks: [internal, public]
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fastnotes}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-fastnotes}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  updater:
+    profiles: ["updater"]
+    image: ${CICD_UPDATER_IMAGE:?set CICD_UPDATER_IMAGE in .env}
+    restart: unless-stopped
+    stop_grace_period: 30s
+    labels:
+      io.github.restow-backup.cicd-updater.role: sidecar
+    environment:
+      CICD_UPDATER_CONFIG: ${PROJECT_DIR:?set PROJECT_DIR in .env}/updater.yaml
+      CICD_UPDATER_COMPOSE__PROJECT_DIR: ${PROJECT_DIR:?set PROJECT_DIR in .env}
+      # The registry login for pulls (a Forgejo token with read:package).
+      CICD_UPDATER_DOCKER__REGISTRY_AUTH_FILE: ${PROJECT_DIR:?set PROJECT_DIR in .env}/registry-auth.json
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${PROJECT_DIR:?set PROJECT_DIR in .env}:${PROJECT_DIR:?set PROJECT_DIR in .env}
+      - updater-state:/state
+      - updater-shared:/shared
+      - updater-verify:/verify
+    networks: [internal]
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  db-data:
+  updater-state:
+  updater-shared:
+  updater-verify:
+
+networks:
+  internal:
+  public:

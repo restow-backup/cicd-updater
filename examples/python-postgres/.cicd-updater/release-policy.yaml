@@ -1,0 +1,8 @@
+# Upgrade constraints of the next release, reviewed with the code (docs/release-side.md).
+minimumFromVersion: null
+requiresUpdater: ">=1.0.0"
+requiresEnv: []
+manualSteps:
+  required: false
+  summary: null
+  url: null

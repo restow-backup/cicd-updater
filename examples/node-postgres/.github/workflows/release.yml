@@ -1,0 +1,138 @@
+# Release workflow of the Notes example (GitHub Actions, keyless signing).
+# Pushing a tag v* builds both images on native amd64 and arm64 runners, pushes them
+# by digest, smoke-tests them (and the upgrade from the previous release through the
+# sidecar itself), and only then tags, signs and publishes. updater.yaml trusts the
+# identity of this file: trust.keyless.github (acme/notes, .github/workflows/release.yml).
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  APP_IMAGE: ghcr.io/acme/notes
+  WEB_IMAGE: ghcr.io/acme/notes-web
+  # The sidecar the smoke test upgrades through; pin it by digest.
+  CICD_UPDATER_IMAGE: ghcr.io/restow-backup/cicd-updater:1.0.0
+
+jobs:
+  build:
+    name: Build and smoke ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the app image
+        id: app
+        uses: restow-backup/cicd-updater/actions/build@v1.0.0
+        with:
+          image: ${{ env.APP_IMAGE }}
+          file: app/Dockerfile
+          platforms: ${{ matrix.platform }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build the web image
+        id: web
+        uses: restow-backup/cicd-updater/actions/build@v1.0.0
+        with:
+          image: ${{ env.WEB_IMAGE }}
+          file: web/Dockerfile
+          platforms: ${{ matrix.platform }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Smoke test, with the upgrade from the previous release through the sidecar
+        uses: restow-backup/cicd-updater/actions/smoke@v1.0.0
+        with:
+          compose-files: docker-compose.yml,docker-compose.smoke.yml
+          images: >-
+            {"app": {"repository": "${{ env.APP_IMAGE }}", "digest": "${{ steps.app.outputs.digest }}"},
+             "web": {"repository": "${{ env.WEB_IMAGE }}", "digest": "${{ steps.web.outputs.digest }}"}}
+          image-vars: '{"app": "APP_IMAGE", "web": "WEB_IMAGE"}'
+          health-url: http://127.0.0.1:3000/healthz
+          upgrade-from: previous
+          updater-config: updater.yaml
+          updater-image: ${{ env.CICD_UPDATER_IMAGE }}
+
+      - name: Keep the digests
+        env:
+          APP_DIGEST: ${{ steps.app.outputs.digest }}
+          WEB_DIGEST: ${{ steps.web.outputs.digest }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p digests
+          printf '%s' "$APP_DIGEST" > "digests/app-$ARCH"
+          printf '%s' "$WEB_DIGEST" > "digests/web-$ARCH"
+
+      - name: Upload the digests
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digests-${{ matrix.arch }}
+          path: digests/*
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Sign and publish
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download the digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: digests-*
+          path: digests
+          merge-multiple: true
+
+      - name: The platform digests per image
+        id: digests
+        run: |
+          printf 'images={"app": {"repository": "%s", "digests": ["%s", "%s"]}, "web": {"repository": "%s", "digests": ["%s", "%s"]}}\n' \
+            "$APP_IMAGE" "$(cat digests/app-amd64)" "$(cat digests/app-arm64)" \
+            "$WEB_IMAGE" "$(cat digests/web-amd64)" "$(cat digests/web-arm64)" >> "$GITHUB_OUTPUT"
+
+      - name: Tag, sign and attach SBOMs
+        id: publish
+        uses: restow-backup/cicd-updater/actions/publish@v1.0.0
+        with:
+          images: ${{ steps.digests.outputs.images }}
+          signing: keyless
+          registry: ghcr.io
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: release.json and the release
+        uses: restow-backup/cicd-updater/actions/release-json@v1.0.0
+        with:
+          images: ${{ steps.publish.outputs.images }}
+          signing: keyless
+          release-host: github

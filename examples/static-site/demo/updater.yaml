@@ -1,0 +1,36 @@
+# The update demo's configuration (make update-demo): ../updater.yaml with releases from
+# a local file feed, NOT signed (trust mode none). A demo of the mechanics only.
+version: 1
+
+compose:
+  profiles: [updater]
+  files: [docker-compose.yml, demo/docker-compose.demo.yml]
+
+release:
+  feed:
+    type: file
+    path: /demo-feed
+
+trust:
+  mode: none
+  none:
+    acknowledgeUnsigned: true
+
+services:
+  - { name: web, image: web, imageVar: WEB_IMAGE }
+
+hooks:
+  backup:
+    type: none
+  health:
+    type: http
+    http:
+      url: http://web:8080/version.json
+      sendToken: false
+      versionJsonPath: $.version
+  smoke:
+    checks:
+      - { type: http, url: http://web:8080/, expectStatus: [200], bodyContains: Acme Handbook }
+
+rollback:
+  policy: always

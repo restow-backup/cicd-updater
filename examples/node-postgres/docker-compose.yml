@@ -1,0 +1,103 @@
+# Notes, an example app updated by cicd-updater (integration level 3).
+#
+#   api      TypeScript HTTP server: the app's API, its health check and the admin
+#            endpoints that talk to the sidecar through the SDK
+#   worker   background jobs, same image as api
+#   web      Caddy: serves the admin page, proxies /api, and shows the sidecar's
+#            maintenance page while the api is down during an update
+#   db       PostgreSQL 17
+#   updater  the cicd-updater sidecar, OPT-IN (docker compose --profile updater up -d)
+#
+# Production: copy .env.example to .env, fill it in, and set the PROJECT_DIR to the
+# absolute path of this directory. The image variables are written by the updater.
+
+name: notes
+
+services:
+  api:
+    image: ${APP_IMAGE:?set APP_IMAGE in .env}
+    command: ["node", "src/server.ts"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-notes}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-notes}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?set ADMIN_TOKEN in .env}
+      UPDATER_URL: ${UPDATER_URL:-http://updater:8090}
+      UPDATER_TOKEN_FILE: /run/cicd-updater/token
+      NOTES_SEARCH_URL: ${NOTES_SEARCH_URL:-}
+    volumes:
+      - updater-shared:/run/cicd-updater:ro # the shared token (read-only)
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks: [internal]
+
+  worker:
+    image: ${APP_IMAGE:?set APP_IMAGE in .env}
+    command: ["node", "src/worker.ts"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-notes}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-notes}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [internal]
+
+  web:
+    image: ${WEB_IMAGE:?set WEB_IMAGE in .env}
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-8080}:8080"
+    networks: [internal, public]
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-notes}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-notes}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  updater:
+    profiles: ["updater"] # opt-in
+    # Never one of the image variables the updater writes. Pin it by digest after
+    # verifying it (docs/upgrading-the-updater.md).
+    image: ${CICD_UPDATER_IMAGE:?set CICD_UPDATER_IMAGE in .env}
+    restart: unless-stopped
+    stop_grace_period: 30s
+    labels:
+      io.github.restow-backup.cicd-updater.role: sidecar
+    environment:
+      CICD_UPDATER_CONFIG: ${PROJECT_DIR:?set PROJECT_DIR in .env}/updater.yaml
+      CICD_UPDATER_COMPOSE__PROJECT_DIR: ${PROJECT_DIR:?set PROJECT_DIR in .env}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${PROJECT_DIR:?set PROJECT_DIR in .env}:${PROJECT_DIR:?set PROJECT_DIR in .env} # same path inside and outside
+      - updater-state:/state
+      - updater-shared:/shared
+      - updater-verify:/verify
+    networks: [internal] # no ports
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  db-data:
+  updater-state:
+  updater-shared:
+  updater-verify:
+
+networks:
+  internal:
+  public:

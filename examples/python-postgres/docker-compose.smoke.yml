@@ -1,0 +1,5 @@
+# Used only by the release smoke test on the CI runner: the API on the runner's loopback.
+services:
+  api:
+    ports:
+      - "127.0.0.1:8000:8000"

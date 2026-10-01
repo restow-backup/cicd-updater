@@ -1,0 +1,56 @@
+# The same release on GitLab CI (keyless signing with the job's OIDC token). Copy to
+# .gitlab-ci.yml and set trust.keyless.gitlab in updater.yaml instead of github:
+#
+#   trust:
+#     mode: keyless
+#     keyless:
+#       gitlab: { host: gitlab.com, project: acme/handbook, ciConfigPath: .gitlab-ci.yml }
+#
+# and release.feed: { type: gitlab, url: https://gitlab.com/acme/handbook }.
+
+variables:
+  WEB_IMAGE_REPOSITORY: $CI_REGISTRY_IMAGE
+  CICD_UPDATER_IMAGE: ghcr.io/restow-backup/cicd-updater:1.0.0 # append @sha256:<digest>
+  DOCKER_HOST: tcp://docker:2376
+  DOCKER_TLS_CERTDIR: /certs
+  DOCKER_TLS_VERIFY: "1"
+  DOCKER_CERT_PATH: /certs/client
+
+release:
+  image:
+    name: $CICD_UPDATER_IMAGE
+    entrypoint: [""]
+  services:
+    - name: docker:28-dind
+      alias: docker
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/
+  id_tokens:
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
+    - docker run --privileged --rm tonistiigi/binfmt --install arm64
+    - docker buildx create --use --driver docker-container
+    - VERSION="${CI_COMMIT_TAG#v}"
+    - >-
+      cicd-updater release build --version "$VERSION" --github-output build.env
+      --images "{\"web\": {\"repository\": \"$WEB_IMAGE_REPOSITORY\", \"buildArgs\": {\"VERSION\": \"{version}\"}}}"
+    - BUILT="$(sed -n 's/^images=//p' build.env)"
+    - SMOKE="$(sed -n 's/^smoke-images=//p' build.env)"
+    - >-
+      cicd-updater release smoke --compose-files docker-compose.yml,docker-compose.smoke.yml
+      --images "$SMOKE" --image-vars '{"web": "WEB_IMAGE"}'
+      --health-url http://docker:8080/version.json --health-version-path '$.version'
+      --expect-version "$VERSION" --report smoke-report.md
+    - cicd-updater release index --images "$BUILT" --version "$VERSION" --github-output index.env
+    - PUBLISHED="$(sed -n 's/^images=//p' index.env)"
+    - cicd-updater release sign-images --images "$PUBLISHED" --signing keyless
+    - >-
+      cicd-updater release json create --images "$PUBLISHED" --version "$VERSION"
+      --tag "$CI_COMMIT_TAG" --signing keyless --out release.json
+    - cicd-updater release json sign --file release.json --signing keyless
+    - >-
+      cicd-updater release upload --host gitlab --api-url "$CI_SERVER_URL"
+      --repository "$CI_PROJECT_PATH" --tag "$CI_COMMIT_TAG"
+      --files release.json,release.json.sigstore.json,smoke-report.md

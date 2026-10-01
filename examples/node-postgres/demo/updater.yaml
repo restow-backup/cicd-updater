@@ -1,0 +1,49 @@
+# The update demo's configuration (make update-demo): the same services and hooks as
+# ../updater.yaml, but releases come from a local file feed and are NOT signed
+# (trust mode none). A demo of the mechanics only; production uses ../updater.yaml.
+version: 1
+
+compose:
+  profiles: [updater]
+  files: [docker-compose.yml, demo/docker-compose.demo.yml]
+
+release:
+  feed:
+    type: file
+    path: /demo-feed
+
+trust:
+  mode: none
+  none:
+    acknowledgeUnsigned: true
+
+services:
+  - { name: api, image: app, imageVar: APP_IMAGE, startOrder: 1 }
+  - { name: worker, image: app, imageVar: APP_IMAGE, startOrder: 2 }
+  - { name: web, image: web, imageVar: WEB_IMAGE, startOrder: 3, stopBeforeUpdate: false }
+
+hooks:
+  backup:
+    type: postgres
+    service: db
+  migrationProbe:
+    type: postgres
+    service: db
+    preset: node-pg-migrate
+  migrate:
+    service: api
+    argv: ["npm", "run", "--silent", "migrate"]
+  health:
+    type: http
+    http:
+      url: http://api:3000/healthz
+      versionJsonPath: $.version
+  smoke:
+    checks:
+      - { type: http, url: http://web:8080/api/ping, expectStatus: [200], bodyContains: pong }
+
+rollback:
+  policy: probe
+
+maintenancePage:
+  enabled: true

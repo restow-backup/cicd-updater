@@ -14,6 +14,12 @@ importers:
       '@cicd-updater/protocol':
         specifier: workspace:^
         version: link:packages/protocol
+      '@cicd-updater/release-tools':
+        specifier: workspace:^
+        version: link:packages/release-tools
+      '@cicd-updater/sidecar':
+        specifier: workspace:^
+        version: link:packages/sidecar
       '@types/node':
         specifier: ^22
         version: 22.20.4

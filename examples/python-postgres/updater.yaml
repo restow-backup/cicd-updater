@@ -1,0 +1,60 @@
+# cicd-updater configuration of the FastNotes example (docs/configuration.md).
+# compose.projectDir comes from CICD_UPDATER_COMPOSE__PROJECT_DIR (docker-compose.yml).
+version: 1
+
+compose:
+  profiles: [updater]
+
+release:
+  feed:
+    type: gitea # Forgejo and Gitea
+    url: https://git.example.com/acme/fastnotes
+    tokenFile: /opt/fastnotes/feed-token # a token with read access, for a private repository
+  channel: stable
+
+trust:
+  mode: key
+  key:
+    # The public half of the cosign key pair the Forgejo workflow signs with
+    # (cosign generate-key-pair). Add the next key here before rotating.
+    publicKeyFiles: [/opt/fastnotes/cosign.pub]
+    transparencyLog: false
+
+services:
+  - { name: api, image: app, imageVar: APP_IMAGE }
+
+hooks:
+  backup:
+    type: postgres
+    service: db
+    encryption:
+      # Backups are encrypted to this age recipient; the identity (private key) stays
+      # off the server. REPLACE this placeholder with your own recipient (age-keygen).
+      ageRecipients: [age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq]
+    retention:
+      keep: 5
+      maxAgeDays: 30
+  migrationProbe:
+    type: postgres
+    service: db
+    preset: alembic
+  health:
+    type: http
+    http:
+      url: http://api:8000/health
+      versionJsonPath: $.version
+      # Ready means: the API answers AND its database check passed.
+      conditions:
+        - { path: $.database, equals: ok }
+  smoke:
+    checks:
+      - { type: http, url: http://api:8000/docs, expectStatus: [200] }
+
+rollback:
+  policy: probe
+
+publicStatus:
+  enabled: true
+
+maintenancePage:
+  enabled: true

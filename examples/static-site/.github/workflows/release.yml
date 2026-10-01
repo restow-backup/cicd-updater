@@ -1,0 +1,40 @@
+# Release workflow of the Acme Handbook example: the whole release in one job with the
+# composite action `release` (QEMU for arm64), keyless signing. updater.yaml trusts the
+# identity of this file: trust.keyless.github (acme/handbook, .github/workflows/release.yml).
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build, smoke-test, sign and publish
+        uses: restow-backup/cicd-updater/actions/release@v1.0.0
+        with:
+          images: '{"web": {"repository": "ghcr.io/acme/handbook", "buildArgs": {"VERSION": "{version}"}}}'
+          registry: ghcr.io
+          password: ${{ secrets.GITHUB_TOKEN }}
+          compose-files: docker-compose.yml,docker-compose.smoke.yml
+          image-vars: '{"web": "WEB_IMAGE"}'
+          health-url: http://127.0.0.1:8080/version.json
+          health-version-path: $.version
+          signing: keyless

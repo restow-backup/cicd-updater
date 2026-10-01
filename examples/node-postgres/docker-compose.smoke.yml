@@ -1,0 +1,9 @@
+# Used only by the release smoke test on the CI runner: publishes the api on the
+# runner's loopback so the health URL is reachable, and keeps the edge reachable.
+services:
+  api:
+    ports:
+      - "127.0.0.1:3000:3000"
+  web:
+    ports: !override
+      - "127.0.0.1:8080:8080"

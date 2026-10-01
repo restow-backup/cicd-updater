@@ -30,6 +30,8 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
     "@cicd-updater/protocol": "workspace:^",
+    "@cicd-updater/release-tools": "workspace:^",
+    "@cicd-updater/sidecar": "workspace:^",
     "@types/node": "^22",
     "@vitest/coverage-v8": "^5.0.3",
     "ajv": "^8.20.0",

@@ -1,0 +1,46 @@
+# The update demo's configuration (make update-demo): the services and hooks of
+# ../updater.yaml, releases from a local file feed, NOT signed (trust mode none) and
+# backups not encrypted. A demo of the mechanics only; production uses ../updater.yaml.
+version: 1
+
+compose:
+  profiles: [updater]
+  files: [docker-compose.yml, demo/docker-compose.demo.yml]
+
+release:
+  feed:
+    type: file
+    path: /demo-feed
+
+trust:
+  mode: none
+  none:
+    acknowledgeUnsigned: true
+
+services:
+  - { name: api, image: app, imageVar: APP_IMAGE }
+
+hooks:
+  backup:
+    type: postgres
+    service: db
+  migrationProbe:
+    type: postgres
+    service: db
+    preset: alembic
+  health:
+    type: http
+    http:
+      url: http://api:8000/health
+      versionJsonPath: $.version
+      conditions:
+        - { path: $.database, equals: ok }
+  smoke:
+    checks:
+      - { type: http, url: http://api:8000/docs, expectStatus: [200] }
+
+rollback:
+  policy: probe
+
+maintenancePage:
+  enabled: true

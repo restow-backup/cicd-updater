@@ -56,7 +56,7 @@ jobs:
         run: pnpm lint:actions
 
       - name: Shell scripts
-        run: shellcheck docker/*.sh
+        run: shellcheck docker/*.sh examples/update-demo.sh
 
       - name: actionlint
         # Built from source at a fixed version; the Go checksum database verifies it.

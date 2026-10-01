@@ -1,0 +1,40 @@
+# cicd-updater configuration of the Acme Handbook example (docs/configuration.md).
+# compose.projectDir comes from CICD_UPDATER_COMPOSE__PROJECT_DIR (docker-compose.yml).
+version: 1
+
+compose:
+  profiles: [updater]
+
+release:
+  feed:
+    type: github
+    url: https://github.com/acme/handbook
+
+trust:
+  mode: keyless
+  keyless:
+    github:
+      repository: acme/handbook
+      workflow: .github/workflows/release.yml
+
+services:
+  - { name: web, image: web, imageVar: WEB_IMAGE }
+
+hooks:
+  backup:
+    type: none # a static site has no data to back up
+  health:
+    type: http
+    http:
+      url: http://web:8080/version.json
+      sendToken: false
+      versionJsonPath: $.version
+  smoke:
+    checks:
+      - { type: http, url: http://web:8080/, expectStatus: [200], bodyContains: Acme Handbook }
+
+rollback:
+  policy: always # nothing to migrate: going back is always safe
+
+maintenancePage:
+  enabled: true # for an outer proxy that falls back to it (README)
