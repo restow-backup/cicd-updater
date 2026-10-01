@@ -16,10 +16,15 @@
  *     });
  *   </script>
  *
- * Texts: English sentences below (TODO(cicd-updater): translate). Codes (blockers,
- * refusals, failures, run messages) are shown as "Status code <code>" unless you pass an
- * SDK catalog as `messages` (`import { de } from "@restow-backup/cicd-updater/messages"`
- * in a bundled app).
+ * Texts: English by default (copies of the SDK's `en` and `adminEn`). A bundled app passes
+ * the SDK's catalogs for another language, and gets the texts of every code with them:
+ *
+ *   import { adminDe, de } from "@restow-backup/cicd-updater/messages";
+ *   mountMaintenanceBanner(banner, { messages: de });
+ *   mountUpdatesPanel(panel, { messages: de, texts: adminDe });
+ *
+ * Without `messages`, blockers, refusals and failures are shown as "Status code <code>".
+ * TODO(cicd-updater): without a bundler, translate CODES and ADMIN below.
  *
  * Everything is rendered with textContent (never innerHTML), and the elements are built
  * once and updated in place, so keyboard focus survives the polling.
@@ -29,16 +34,26 @@
 /** @typedef {import("@restow-backup/cicd-updater/protocol").StateView} StateView */
 /** @typedef {import("@restow-backup/cicd-updater/protocol").ReleasesView} ReleasesView */
 /** @typedef {import("@restow-backup/cicd-updater/messages").Messages} Messages */
+/** @typedef {import("@restow-backup/cicd-updater/messages").AdminMessages} AdminMessages */
+/**
+ * The parts of a `Messages` catalog the widget needs without one.
+ * @typedef {{ ui: Record<string, string>, outcomes: Record<string, string>, steps: Record<string, string> }} CodeTexts
+ */
 /** @typedef {"failures" | "blockers" | "warnings" | "refusals" | "problems"} CodeKind */
 /** @typedef {{ state: StateView | null, leadTimes: number[], stepUpMaxAgeSeconds: number }} AdminUpdatesView */
 
-const TEXT = {
-  phases: {
-    idle: "No update planned",
-    scheduled: "An update is scheduled.",
-    running: "An update is in progress.",
-    succeeded: "The update finished.",
-    failed: "The update failed.",
+/** @type {CodeTexts} English defaults: a copy of the SDK's `en` (the parts used here). */
+const CODES = {
+  ui: {
+    unknownCode: "Status code {code}",
+    updateScheduled: "An update is scheduled.",
+    updateRunning: "An update is in progress.",
+    updateSucceeded: "The update finished.",
+    updateFailed: "The update failed.",
+    startsIn: "Starts in {time}",
+    startingNow: "Starting now",
+    progress: "{progress} % done",
+    trustModeNone: "Signatures are not checked on this installation.",
   },
   outcomes: {
     succeeded: "The new version is running.",
@@ -57,50 +72,94 @@ const TEXT = {
     smoke: "Running checks",
     finish: "Cleaning up",
   },
-  startsIn: "Starts in",
-  startingNow: "Starting now",
-  progress: "% done",
-  progressLabel: "Progress",
-  unknownCode: "Status code",
+};
+
+/** @type {AdminMessages} English defaults: a copy of the SDK's `adminEn`. */
+const ADMIN = {
+  locale: "en",
   title: "Updates",
   loading: "Loading the update status…",
   forbidden: "Only installation administrators can manage updates.",
   offline:
     "The app does not answer. While an update runs this is expected; this page reconnects by itself.",
   noSidecar: "Updates from this page are not set up on this installation.",
+  manualSteps: "How to update by hand",
   runningVersion: "Running version",
-  unknown: "unknown",
-  trustNone: "Signatures are not checked on this installation.",
+  unknownVersion: "unknown",
   blocked: "Updates are blocked until these problems are fixed on the host:",
+  warnings: "Warnings:",
   currentRun: "Current update",
+  versions: "Version {from} to {to}",
+  requestedBy: "Requested by {label}",
+  abortRequested: "Abort requested; the update stops at its next check point.",
   cancel: "Cancel update",
   acknowledge: "Acknowledge",
-  abortRequested: "Abort requested; the update stops at its next check point.",
-  attention:
-    "The update failed after the point of no return, and going back was not certain to be safe. The app was stopped and the backup kept; nothing happens automatically. An operator runs `docker compose exec updater cicd-updater recover show` on the host and follows the runbook. Acknowledge only after the installation runs again.",
+  progressLabel: "Progress",
+  attentionTitle: "This update needs attention",
+  attentionBody:
+    "The update failed after the point of no return, and going back was not certain to be safe. The app was stopped, the backup was kept, and nothing happens automatically. An operator decides on the host whether to go back to the previous version or forward to the new one.",
+  attentionSchemaChanged:
+    "The new version changed the database schema: the previous version must not run on it without restoring the backup.",
+  attentionSchemaUnchanged:
+    "The database schema is unchanged; starting the previous version failed.",
+  attentionSchemaUnknown: "It is unknown whether the database schema changed; treat it as changed.",
+  attentionBackup: "Backup: {file}",
+  attentionCommand: "On the host, in the project directory:",
+  attentionCommands: "Recovery commands recorded by the updater (review before running them)",
+  attentionRunbook: "Runbook: a run ended in needs_attention",
+  attentionAcknowledge: "Acknowledge only after the installation runs again.",
   available: "Available release",
   checking: "Checking for releases…",
   checkAgain: "Check for new releases",
   newest: "This installation runs the newest release.",
-  nothingInstallable: "No newer release can be installed now.",
+  nothingInstallable: "No newer release can be installed now:",
   version: "Version",
   start: "Start",
   notes: "Release notes",
+  releaseDigest: "release.json SHA-256 {sha}…",
   schedule: "Schedule update",
   busyRun: "An update is already scheduled or running.",
   stepUp: "Please confirm your sign-in, then try again.",
-  failed: "The request failed:",
-  scheduled: "The update is scheduled.",
+  requestFailed: "The request failed:",
+  scheduled: "The update to {version} is scheduled.",
   cancelled: "The update was cancelled, or its abort was requested.",
   acknowledged: "The result was acknowledged.",
+  leadTimeNow: "now",
+  leadTimeMinute: "in 1 minute",
+  leadTimeMinutes: "in {count} minutes",
+  leadTimeHour: "in 1 hour",
+  leadTimeHours: "in {count} hours",
 };
 
-/** @param {number} seconds */
-function leadTimeText(seconds) {
-  if (seconds === 0) {
-    return "now";
+/** Replace `{name}` placeholders, as the SDK's interpolate. @param {string} template @param {Record<string, string | number>} params */
+function interpolate(template, params) {
+  return template.replace(/\{([A-Za-z0-9_]+)\}/g, (whole, /** @type {string} */ name) =>
+    Object.hasOwn(params, name) ? String(params[name]) : whole,
+  );
+}
+
+/** The banner title of a phase. @param {CodeTexts} codes @param {string} phase */
+function phaseTitle(codes, phase) {
+  const key = {
+    scheduled: "updateScheduled",
+    running: "updateRunning",
+    succeeded: "updateSucceeded",
+    failed: "updateFailed",
+  }[phase];
+  return (key && codes.ui[key]) ?? "";
+}
+
+/** As the SDK's formatLeadTime. @param {AdminMessages} texts @param {number} seconds */
+function leadTimeText(texts, seconds) {
+  if (seconds <= 0) {
+    return texts.leadTimeNow;
   }
-  return seconds < 3600 ? `in ${seconds / 60} min` : `in ${seconds / 3600} h`;
+  if (seconds < 3600 || seconds % 3600 !== 0) {
+    const count = Math.round(seconds / 60);
+    return count === 1 ? texts.leadTimeMinute : interpolate(texts.leadTimeMinutes, { count });
+  }
+  const count = seconds / 3600;
+  return count === 1 ? texts.leadTimeHour : interpolate(texts.leadTimeHours, { count });
 }
 
 /** `75` -> `1:15`, `3725` -> `1:02:05` (as the SDK's formatCountdown). @param {number} seconds */
@@ -113,13 +172,17 @@ function formatCountdown(seconds) {
 }
 
 /**
- * @param {Messages | undefined} messages
+ * @param {CodeTexts} codes
  * @param {CodeKind} kind
  * @param {string} code
  */
-function describe(messages, kind, code) {
-  const table = /** @type {Record<string, string> | undefined} */ (messages?.[kind]);
-  return table && Object.hasOwn(table, code) ? String(table[code]) : `${TEXT.unknownCode} ${code}`;
+function describe(codes, kind, code) {
+  const table = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (codes))[kind];
+  const text =
+    table && typeof table === "object"
+      ? /** @type {Record<string, unknown>} */ (table)[code]
+      : undefined;
+  return typeof text === "string" ? text : interpolate(codes.ui.unknownCode ?? "{code}", { code });
 }
 
 /**
@@ -160,6 +223,8 @@ export function mountMaintenanceBanner(root, options = {}) {
   }
   const api = options.api ?? "/api";
   const publicStatusUrl = options.publicStatusUrl ?? "/public/v1/status";
+  /** @type {CodeTexts} */
+  const codes = options.messages ?? CODES;
   const banner = el("div", { class: "update-banner" });
   // Only the title is a live region: the countdown ticks every second outside it.
   const title = el("strong", { "data-part": "title", "aria-live": "polite" });
@@ -206,26 +271,28 @@ export function mountMaintenanceBanner(root, options = {}) {
     } else {
       delete banner.dataset.outcome;
     }
-    title.textContent = TEXT.phases[phase];
+    title.textContent = phaseTitle(codes, phase);
     if (phase === "scheduled" && view.startsAt) {
       const seconds = Math.max(
         0,
         Math.round((Date.parse(view.startsAt) - (Date.now() + offsetMs)) / 1000),
       );
       detail.textContent =
-        seconds > 0 ? `${TEXT.startsIn} ${formatCountdown(seconds)}` : TEXT.startingNow;
+        seconds > 0
+          ? interpolate(codes.ui.startsIn ?? "", { time: formatCountdown(seconds) })
+          : (codes.ui.startingNow ?? "");
     } else if (view.outcome) {
-      detail.textContent = TEXT.outcomes[view.outcome];
+      detail.textContent = codes.outcomes[view.outcome] ?? "";
     } else {
-      detail.textContent = TEXT.steps[view.step ?? "prepare"];
+      detail.textContent = codes.steps[view.step ?? "prepare"] ?? "";
     }
     bar.setAttribute("aria-valuenow", String(view.progress));
     fill.style.width = `${view.progress}%`;
-    progressText.textContent = `${view.progress} ${TEXT.progress}`;
+    progressText.textContent = interpolate(codes.ui.progress ?? "", { progress: view.progress });
     steps.replaceChildren(
       ...view.steps
         .filter((step) => step.status !== "skipped")
-        .map((step) => el("li", { "data-status": step.status }, TEXT.steps[step.id])),
+        .map((step) => el("li", { "data-status": step.status }, codes.steps[step.id] ?? step.id)),
     );
   }
 
@@ -315,7 +382,7 @@ export function mountMaintenanceBanner(root, options = {}) {
  * lead time, live status with cancel, result with acknowledge, needs_attention guidance.
  *
  * @param {HTMLElement | null} root
- * @param {{ api?: string, messages?: Messages, onStepUp?: () => void }} [options]
+ * @param {{ api?: string, messages?: Messages, texts?: AdminMessages, onStepUp?: () => void }} [options]
  * @returns {() => void} stops polling
  */
 export function mountUpdatesPanel(root, options = {}) {
@@ -323,14 +390,16 @@ export function mountUpdatesPanel(root, options = {}) {
     return () => {};
   }
   const api = options.api ?? "/api";
-  const messages = options.messages;
+  /** @type {CodeTexts} */
+  const codes = options.messages ?? CODES;
+  const texts = options.texts ?? ADMIN;
 
-  const heading = el("h2", { id: "updates-title" }, TEXT.title);
+  const heading = el("h2", { id: "updates-title" }, texts.title);
   root.setAttribute("aria-labelledby", "updates-title");
   root.classList.add("updates-page");
   const live = el("output", { "aria-live": "polite", class: "updates-live" });
   const alert = el("p", { role: "alert", class: "updates-error" });
-  const status = el("p", {}, TEXT.loading);
+  const status = el("p", {}, texts.loading);
   const facts = el("p", { class: "updates-facts" });
   const warning = el("div", { class: "updates-warning" });
 
@@ -338,12 +407,19 @@ export function mountUpdatesPanel(root, options = {}) {
   const runLive = el("p", { "aria-live": "polite" });
   const runCountdown = el("p");
   const runInfo = el("p");
-  const runProgress = el("progress", { max: "100", "aria-label": TEXT.progressLabel });
-  const runAttention = el("p", { class: "updates-attention" }, TEXT.attention);
-  const cancel = el("button", { type: "button" }, TEXT.cancel);
-  const acknowledge = el("button", { type: "button" }, TEXT.acknowledge);
+  const runProgress = el("progress", { max: "100", "aria-label": texts.progressLabel });
+  const runAttention = el("div", { class: "updates-attention" });
+  runAttention.append(
+    el("h4", {}, texts.attentionTitle),
+    el("p", {}, texts.attentionBody),
+    el("p", {}, texts.attentionCommand),
+    el("pre", {}, "docker compose exec updater cicd-updater recover show"),
+    el("p", {}, texts.attentionAcknowledge),
+  );
+  const cancel = el("button", { type: "button" }, texts.cancel);
+  const acknowledge = el("button", { type: "button" }, texts.acknowledge);
   run.append(
-    el("h3", { id: "updates-run-title" }, TEXT.currentRun),
+    el("h3", { id: "updates-run-title" }, texts.currentRun),
     runLive,
     runCountdown,
     runInfo,
@@ -357,28 +433,28 @@ export function mountUpdatesPanel(root, options = {}) {
     class: "updates-available",
     "aria-labelledby": "updates-available-title",
   });
-  const releaseStatus = el("p", {}, TEXT.checking);
+  const releaseStatus = el("p", {}, texts.checking);
   const form = el("form", { class: "updates-form" });
   const versionSelect = /** @type {HTMLSelectElement} */ (el("select", { id: "updates-version" }));
   const leadSelect = /** @type {HTMLSelectElement} */ (el("select", { id: "updates-lead" }));
   const notes = /** @type {HTMLAnchorElement} */ (
-    el("a", { target: "_blank", rel: "noopener noreferrer" }, TEXT.notes)
+    el("a", { target: "_blank", rel: "noopener noreferrer" }, texts.notes)
   );
-  const submit = el("button", { type: "submit" }, TEXT.schedule);
+  const submit = el("button", { type: "submit" }, texts.schedule);
   const submitHint = el("p");
   form.append(
-    el("label", { for: "updates-version" }, TEXT.version),
+    el("label", { for: "updates-version" }, texts.version),
     versionSelect,
     notes,
-    el("label", { for: "updates-lead" }, TEXT.start),
+    el("label", { for: "updates-lead" }, texts.start),
     leadSelect,
     submit,
     submitHint,
   );
   const refused = el("ul", { class: "updates-refused" });
-  const refresh = el("button", { type: "button" }, TEXT.checkAgain);
+  const refresh = el("button", { type: "button" }, texts.checkAgain);
   available.append(
-    el("h3", { id: "updates-available-title" }, TEXT.available),
+    el("h3", { id: "updates-available-title" }, texts.available),
     releaseStatus,
     form,
     refused,
@@ -429,18 +505,18 @@ export function mountUpdatesPanel(root, options = {}) {
     const { status: code, body } = /** @type {{ status?: number, body?: any }} */ (error);
     const problem = String(body?.code ?? "network");
     if (code === 401 || code === 403) {
-      return problem === "step_up_required" ? TEXT.stepUp : TEXT.forbidden;
+      return problem === "step_up_required" ? texts.stepUp : texts.forbidden;
     }
     if (problem === "network" || problem === "updater_unavailable") {
-      return problem === "network" ? TEXT.offline : TEXT.noSidecar;
+      return problem === "network" ? texts.offline : texts.noSidecar;
     }
     const extra = [
       ...(body?.blockers ?? []).map((/** @type {{ code: string }} */ b) =>
-        describe(messages, "blockers", b.code),
+        describe(codes, "blockers", b.code),
       ),
-      ...(body?.reasons ?? []).map((/** @type {string} */ r) => describe(messages, "refusals", r)),
+      ...(body?.reasons ?? []).map((/** @type {string} */ r) => describe(codes, "refusals", r)),
     ];
-    return [describe(messages, "problems", problem), ...extra].join(" ");
+    return [describe(codes, "problems", problem), ...extra].join(" ");
   }
 
   function render() {
@@ -452,17 +528,17 @@ export function mountUpdatesPanel(root, options = {}) {
     const phase = current.phase;
     const active = phase === "scheduled" || phase === "running";
     show(facts, true);
-    facts.textContent = `${TEXT.runningVersion}: ${current.running.version ?? TEXT.unknown}`;
+    facts.textContent = `${texts.runningVersion}: ${current.running.version ?? texts.unknownVersion}`;
 
     const problems = [
-      ...(current.trust.mode === "none" ? [TEXT.trustNone] : []),
-      ...current.capabilities.blockers.map((b) => describe(messages, "blockers", b.code)),
+      ...(current.trust.mode === "none" ? [codes.ui.trustModeNone ?? ""] : []),
+      ...current.capabilities.blockers.map((b) => describe(codes, "blockers", b.code)),
     ];
     show(warning, problems.length > 0);
     const list = el("ul");
     list.append(...problems.map((text) => el("li", {}, text)));
     warning.replaceChildren(
-      ...(current.capabilities.blockers.length > 0 ? [el("p", {}, TEXT.blocked)] : []),
+      ...(current.capabilities.blockers.length > 0 ? [el("p", {}, texts.blocked)] : []),
       list,
     );
 
@@ -470,19 +546,24 @@ export function mountUpdatesPanel(root, options = {}) {
     show(run, currentRun !== null);
     if (currentRun) {
       run.dataset.state = phase;
-      const outcome = currentRun.outcome ? TEXT.outcomes[currentRun.outcome] : "";
+      const outcome = currentRun.outcome ? (codes.outcomes[currentRun.outcome] ?? "") : "";
       const failure = currentRun.failure
-        ? describe(messages, "failures", currentRun.failure.code)
+        ? describe(codes, "failures", currentRun.failure.code)
         : "";
-      runLive.textContent = `${TEXT.phases[phase]} ${outcome || (phase === "running" ? TEXT.steps[currentRun.step ?? "prepare"] : "")} ${failure}`;
+      runLive.textContent = `${phaseTitle(codes, phase)} ${outcome || (phase === "running" ? (codes.steps[currentRun.step ?? "prepare"] ?? "") : "")} ${failure}`;
       const seconds = Math.max(
         0,
         Math.round((Date.parse(currentRun.startsAt) - (Date.now() + offsetMs)) / 1000),
       );
       show(runCountdown, phase === "scheduled");
       runCountdown.textContent =
-        seconds > 0 ? `${TEXT.startsIn} ${formatCountdown(seconds)}` : TEXT.startingNow;
-      runInfo.textContent = `${currentRun.fromVersion ?? TEXT.unknown} → ${currentRun.targetVersion}, ${currentRun.requestedBy.label}${currentRun.abortRequestedAt ? `. ${TEXT.abortRequested}` : ""}`;
+        seconds > 0
+          ? interpolate(codes.ui.startsIn ?? "", { time: formatCountdown(seconds) })
+          : (codes.ui.startingNow ?? "");
+      runInfo.textContent = `${interpolate(texts.versions, {
+        from: currentRun.fromVersion ?? texts.unknownVersion,
+        to: currentRun.targetVersion,
+      })}. ${interpolate(texts.requestedBy, { label: currentRun.requestedBy.label })}.${currentRun.abortRequestedAt ? ` ${texts.abortRequested}` : ""}`;
       show(runProgress, phase === "running");
       runProgress.setAttribute("value", String(currentRun.progress));
       show(runAttention, currentRun.outcome === "needs_attention");
@@ -502,7 +583,7 @@ export function mountUpdatesPanel(root, options = {}) {
     show(releaseStatus, installable.length === 0);
     if (releases && installable.length === 0) {
       releaseStatus.textContent =
-        refusedReleases.length > 0 ? TEXT.nothingInstallable : TEXT.newest;
+        refusedReleases.length > 0 ? texts.nothingInstallable : texts.newest;
     }
     show(form, installable.length > 0);
     const chosen =
@@ -510,10 +591,10 @@ export function mountUpdatesPanel(root, options = {}) {
     notes.href = chosen?.notesUrl ?? "";
     show(notes, Boolean(chosen?.notesUrl));
     const blockedReason = active
-      ? TEXT.busyRun
+      ? texts.busyRun
       : current.capabilities.ready
         ? ""
-        : describe(messages, "problems", "blocked");
+        : describe(codes, "problems", "blocked");
     submit.toggleAttribute("disabled", busy || blockedReason !== "");
     submitHint.textContent = blockedReason;
     refresh.toggleAttribute("disabled", busy);
@@ -522,7 +603,7 @@ export function mountUpdatesPanel(root, options = {}) {
         el(
           "li",
           {},
-          `${release.version}: ${release.refusals.map((code) => describe(messages, "refusals", code)).join(" ")}`,
+          `${release.version}: ${release.refusals.map((code) => describe(codes, "refusals", code)).join(" ")}`,
         ),
       ),
     );
@@ -535,7 +616,7 @@ export function mountUpdatesPanel(root, options = {}) {
     }
     for (const seconds of leadTimes) {
       const option = /** @type {HTMLOptionElement} */ (
-        el("option", { value: String(seconds) }, leadTimeText(seconds))
+        el("option", { value: String(seconds) }, leadTimeText(texts, seconds))
       );
       option.selected = seconds === 900;
       leadSelect.append(option);
@@ -544,7 +625,7 @@ export function mountUpdatesPanel(root, options = {}) {
 
   /** @param {boolean} refreshFeed */
   async function loadReleases(refreshFeed) {
-    releaseStatus.textContent = TEXT.checking;
+    releaseStatus.textContent = texts.checking;
     show(releaseStatus, true);
     try {
       releases = /** @type {ReleasesView} */ (
@@ -592,7 +673,7 @@ export function mountUpdatesPanel(root, options = {}) {
         }
         delay = state.phase === "scheduled" || state.phase === "running" ? 3000 : 30_000;
       } else {
-        status.textContent = TEXT.noSidecar;
+        status.textContent = texts.noSidecar;
         show(status, true);
       }
       render();
@@ -627,7 +708,7 @@ export function mountUpdatesPanel(root, options = {}) {
       if (/** @type {{ body?: { code?: string } }} */ (error).body?.code === "step_up_required") {
         options.onStepUp?.();
       }
-      alert.textContent = `${TEXT.failed} ${explain(error)}`;
+      alert.textContent = `${texts.requestFailed} ${explain(error)}`;
       show(alert, true);
     } finally {
       busy = false;
@@ -646,14 +727,14 @@ export function mountUpdatesPanel(root, options = {}) {
           leadSeconds: Number(leadSelect.value),
           releaseSha256: release.releaseSha256,
         },
-        TEXT.scheduled,
+        interpolate(texts.scheduled, { version: release.version }),
       );
     }
   });
   versionSelect.addEventListener("change", render);
   cancel.addEventListener("click", () => {
     if (state?.run) {
-      void act(`/admin/updates/${encodeURIComponent(state.run.id)}/cancel`, {}, TEXT.cancelled);
+      void act(`/admin/updates/${encodeURIComponent(state.run.id)}/cancel`, {}, texts.cancelled);
     }
   });
   acknowledge.addEventListener("click", () => {
@@ -661,7 +742,7 @@ export function mountUpdatesPanel(root, options = {}) {
       void act(
         `/admin/updates/${encodeURIComponent(state.run.id)}/acknowledge`,
         {},
-        TEXT.acknowledged,
+        texts.acknowledged,
       );
     }
   });

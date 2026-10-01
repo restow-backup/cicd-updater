@@ -4,6 +4,7 @@ import { envCheck, parsePolicy } from "@cicd-updater/release-tools";
 import { loadConfig } from "@cicd-updater/sidecar";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { adminEn, en } from "../../packages/sdk/src/messages.js";
 
 /**
  * The web app template stays consistent with the contracts, like the examples
@@ -90,5 +91,27 @@ describe("templates/web-app", () => {
     );
     expect(readers.map(([name]) => name)).toEqual([loaded.config.services[0]?.name]);
     expect(readers[0]?.[1].volumes).toContain("updater-shared:/run/cicd-updater:ro");
+  });
+
+  it("the vanilla widget's English texts are copies of the SDK's catalogs", () => {
+    const source = read("frontend/vanilla/updates-widget.js");
+    const literal = (name: string): Record<string, unknown> => {
+      const match = new RegExp(`\\nconst ${name} = (\\{[\\s\\S]*?\\n\\});\\n`).exec(source);
+      if (!match?.[1]) {
+        throw new Error(`${name} not found`);
+      }
+      return new Function(`return (${match[1]});`)() as Record<string, unknown>;
+    };
+    expect(literal("ADMIN")).toEqual(adminEn);
+    const codes = literal("CODES") as {
+      ui: Record<string, string>;
+      outcomes: Record<string, string>;
+      steps: Record<string, string>;
+    };
+    expect(codes.outcomes).toEqual(en.outcomes);
+    expect(codes.steps).toEqual(en.steps);
+    for (const [key, text] of Object.entries(codes.ui)) {
+      expect(text, key).toBe(en.ui[key as keyof typeof en.ui]);
+    }
   });
 });

@@ -1,5 +1,8 @@
 import {
+  type AdminMessages,
+  adminMessagesFor,
   describeCode,
+  formatLeadTime,
   formatMessage,
   interpolate,
   type Messages,
@@ -24,72 +27,23 @@ import { type AdminUpdatesView, ApiError, updatesApi } from "./api.js";
  * the result with acknowledge, and what to do when a run needs attention.
  *
  * Only for installation admins: your router and your backend enforce that
- * (backend/node/updates.ts). Codes (blockers, refusals, failures, steps) are translated
- * by the SDK's `messages` catalogs (en, de); the page's own sentences are in TEXT.
+ * (backend/node/updates.ts). Codes (blockers, refusals, failures, steps) come from the SDK's
+ * `Messages` catalogs and the page's own sentences from its `AdminMessages` catalogs (both
+ * in `@restow-backup/cicd-updater/messages`, English and German); pass your own objects of
+ * the same shape for other languages.
  *
  *   <UpdatesPage onStepUp={() => openReauthDialog()} />
  */
 
-/** TODO(cicd-updater): translate or move into your app's i18n; set the two URLs. */
-const TEXT = {
-  title: "Updates",
-  loading: "Loading the update status…",
-  forbidden: "Only installation administrators can manage updates.",
-  offline:
-    "The app does not answer. While an update runs this is expected; this page reconnects by itself.",
-  noSidecar: "Updates from this page are not set up on this installation.",
-  manualSteps: "How to update by hand",
-  manualStepsUrl: "https://docs.example.com/updating",
-  runbookUrl:
+/** TODO(cicd-updater): where your manual update steps and the recovery runbook live. */
+const LINKS = {
+  manualSteps: "https://docs.example.com/updating",
+  runbook:
     "https://github.com/restow-backup/cicd-updater/blob/main/docs/backups-and-recovery.md#runbook-a-run-ended-in-needs_attention",
-  runningVersion: "Running version",
-  unknown: "unknown",
-  blocked: "Updates are blocked until these problems are fixed on the host:",
-  warnings: "Warnings:",
-  currentRun: "Current update",
-  versions: (from: string | null, to: string) => `Version ${from ?? "unknown"} to ${to}`,
-  requestedBy: (label: string) => `Requested by ${label}`,
-  abortRequested: "Abort requested; the update stops at its next check point.",
-  cancel: "Cancel update",
-  acknowledge: "Acknowledge",
-  attentionTitle: "This update needs attention",
-  attentionBody:
-    "The update failed after the point of no return, and going back was not certain to be safe. The app was stopped, the backup was kept, and nothing happens automatically. An operator decides on the host whether to go back to the previous version or forward to the new one.",
-  attentionSchema: {
-    true: "The new version changed the database schema: the previous version must not run on it without restoring the backup.",
-    false: "The database schema is unchanged; starting the previous version failed.",
-    null: "It is unknown whether the database schema changed; treat it as changed.",
-  },
-  attentionBackup: (file: string) => `Backup: ${file}`,
-  attentionCommand: "On the host, in the project directory:",
-  attentionCommands: "Recovery commands recorded by the updater (review before running them)",
-  attentionRunbook: "Runbook: a run ended in needs_attention",
-  attentionAcknowledge: "Acknowledge only after the installation runs again.",
-  available: "Available release",
-  checking: "Checking for releases…",
-  checkAgain: "Check for new releases",
-  newest: "This installation runs the newest release.",
-  nothingInstallable: "No newer release can be installed now:",
-  version: "Version",
-  start: "Start",
-  notes: "Release notes",
-  digest: (sha: string) => `release.json SHA-256 ${sha.slice(0, 16)}…`,
-  schedule: "Schedule update",
-  busyRun: "An update is already scheduled or running.",
-  stepUp: "Please confirm your sign-in, then try again.",
-  scheduled: (version: string) => `The update to ${version} is scheduled.`,
-  cancelled: "The update was cancelled.",
-  acknowledged: "The result was acknowledged.",
-  leadTime: (seconds: number) =>
-    seconds === 0
-      ? "now"
-      : seconds < 3600
-        ? `in ${seconds / 60} minute${seconds === 60 ? "" : "s"}`
-        : `in ${seconds / 3600} hour${seconds === 3600 ? "" : "s"}`,
 };
 
-function defaultMessages(): Messages {
-  return messagesFor(typeof navigator === "undefined" ? "en" : navigator.language);
+function browserLocale(): string {
+  return typeof navigator === "undefined" ? "en" : navigator.language;
 }
 
 function asApiError(error: unknown): ApiError {
@@ -97,17 +51,17 @@ function asApiError(error: unknown): ApiError {
 }
 
 /** One sentence for an error answer; codes go through the SDK catalogs. */
-function explain(error: ApiError, messages: Messages): string {
+function explain(error: ApiError, messages: Messages, texts: AdminMessages): string {
   switch (error.code) {
     case "forbidden":
     case "unauthorized":
-      return TEXT.forbidden;
+      return texts.forbidden;
     case "step_up_required":
-      return TEXT.stepUp;
+      return texts.stepUp;
     case "network":
-      return TEXT.offline;
+      return texts.offline;
     case "updater_unavailable":
-      return TEXT.noSidecar;
+      return texts.noSidecar;
     case "blocked":
       return [
         describeCode(messages, "problems", "blocked"),
@@ -129,11 +83,15 @@ function explain(error: ApiError, messages: Messages): string {
 }
 
 export function UpdatesPage(props: {
+  /** Texts of the codes; default: the browser's language (en, de). */
   messages?: Messages;
+  /** The page's own sentences; default: the browser's language (en, de). */
+  texts?: AdminMessages;
   /** TODO(cicd-updater): open your "confirm it is you" dialog; the admin then retries. */
   onStepUp?: () => void;
 }) {
-  const messages = props.messages ?? defaultMessages();
+  const messages = props.messages ?? messagesFor(browserLocale());
+  const texts = props.texts ?? adminMessagesFor(browserLocale());
   const titleId = useId();
   const [view, setView] = useState<AdminUpdatesView | null>(null);
   const [offsetMs, setOffsetMs] = useState(0);
@@ -227,7 +185,7 @@ export function UpdatesPage(props: {
       if (failure.code === "step_up_required") {
         props.onStepUp?.();
       }
-      setActionError(explain(failure, messages));
+      setActionError(explain(failure, messages, texts));
     } finally {
       setBusy(false);
     }
@@ -235,11 +193,11 @@ export function UpdatesPage(props: {
 
   let content: ReactNode;
   if (!view) {
-    content = <p>{loadError ? explain(loadError, messages) : TEXT.loading}</p>;
+    content = <p>{loadError ? explain(loadError, messages, texts) : texts.loading}</p>;
   } else if (!view.state) {
     content = (
       <p>
-        {TEXT.noSidecar} <a href={TEXT.manualStepsUrl}>{TEXT.manualSteps}</a>
+        {texts.noSidecar} <a href={LINKS.manualSteps}>{texts.manualSteps}</a>
       </p>
     );
   } else {
@@ -247,17 +205,19 @@ export function UpdatesPage(props: {
     const active = state.phase === "scheduled" || state.phase === "running";
     content = (
       <>
-        {loadError ? <p className="updates-offline">{explain(loadError, messages)}</p> : null}
+        {loadError ? (
+          <p className="updates-offline">{explain(loadError, messages, texts)}</p>
+        ) : null}
         <dl className="updates-facts">
-          <dt>{TEXT.runningVersion}</dt>
-          <dd>{state.running.version ?? TEXT.unknown}</dd>
+          <dt>{texts.runningVersion}</dt>
+          <dd>{state.running.version ?? texts.unknownVersion}</dd>
         </dl>
         {state.trust.mode === "none" ? (
           <p className="updates-warning">{messages.ui.trustModeNone}</p>
         ) : null}
         {state.capabilities.blockers.length > 0 ? (
           <div className="updates-warning">
-            <p>{TEXT.blocked}</p>
+            <p>{texts.blocked}</p>
             <ul>
               {state.capabilities.blockers.map((blocker) => (
                 <li key={blocker.code}>{describeCode(messages, "blockers", blocker.code)}</li>
@@ -267,7 +227,7 @@ export function UpdatesPage(props: {
         ) : null}
         {state.capabilities.warnings.length > 0 ? (
           <div className="updates-note">
-            <p>{TEXT.warnings}</p>
+            <p>{texts.warnings}</p>
             <ul>
               {state.capabilities.warnings.map((warning) => (
                 <li key={warning.code}>{describeCode(messages, "warnings", warning.code)}</li>
@@ -280,9 +240,10 @@ export function UpdatesPage(props: {
             state={state}
             offsetMs={offsetMs}
             messages={messages}
+            texts={texts}
             busy={busy}
-            onCancel={(runId) => act(() => updatesApi.cancel(runId), TEXT.cancelled)}
-            onAcknowledge={(runId) => act(() => updatesApi.acknowledge(runId), TEXT.acknowledged)}
+            onCancel={(runId) => act(() => updatesApi.cancel(runId), texts.cancelled)}
+            onAcknowledge={(runId) => act(() => updatesApi.acknowledge(runId), texts.acknowledged)}
           />
         ) : null}
         <ReleasePanel
@@ -291,16 +252,20 @@ export function UpdatesPage(props: {
           leadTimes={view.leadTimes}
           blockedReason={
             active
-              ? TEXT.busyRun
+              ? texts.busyRun
               : state.capabilities.ready
                 ? null
                 : describeCode(messages, "problems", "blocked")
           }
           messages={messages}
+          texts={texts}
           busy={busy}
           onRefresh={() => loadReleases(true)}
           onSchedule={(input) =>
-            act(() => updatesApi.schedule(input), TEXT.scheduled(input.version))
+            act(
+              () => updatesApi.schedule(input),
+              interpolate(texts.scheduled, { version: input.version }),
+            )
           }
         />
       </>
@@ -309,7 +274,7 @@ export function UpdatesPage(props: {
 
   return (
     <section aria-labelledby={titleId} aria-busy={busy} className="updates-page">
-      <h2 id={titleId}>{TEXT.title}</h2>
+      <h2 id={titleId}>{texts.title}</h2>
       <output aria-live="polite" className="updates-live">
         {notice}
       </output>
@@ -327,11 +292,12 @@ function RunPanel(props: {
   state: StateView;
   offsetMs: number;
   messages: Messages;
+  texts: AdminMessages;
   busy: boolean;
   onCancel: (runId: string) => void;
   onAcknowledge: (runId: string) => void;
 }) {
-  const { state, messages } = props;
+  const { state, messages, texts } = props;
   const run = state.run;
   const headingId = useId();
   const progressId = useId();
@@ -353,7 +319,7 @@ function RunPanel(props: {
 
   return (
     <section aria-labelledby={headingId} className="updates-run" data-state={state.phase}>
-      <h3 id={headingId}>{TEXT.currentRun}</h3>
+      <h3 id={headingId}>{texts.currentRun}</h3>
       <p aria-live="polite">
         <strong>{messages.phases[state.phase]}</strong> {detail}
       </p>
@@ -365,8 +331,11 @@ function RunPanel(props: {
         </p>
       ) : null}
       <p>
-        {TEXT.versions(run.fromVersion, run.targetVersion)}.{" "}
-        {TEXT.requestedBy(run.requestedBy.label)}.
+        {interpolate(texts.versions, {
+          from: run.fromVersion ?? texts.unknownVersion,
+          to: run.targetVersion,
+        })}
+        . {interpolate(texts.requestedBy, { label: run.requestedBy.label })}.
       </p>
       {state.phase === "running" ? (
         <>
@@ -385,18 +354,18 @@ function RunPanel(props: {
           </ol>
         </>
       ) : null}
-      {run.abortRequestedAt ? <p>{TEXT.abortRequested}</p> : null}
+      {run.abortRequestedAt ? <p>{texts.abortRequested}</p> : null}
       {run.failure ? <p>{describeCode(messages, "failures", run.failure.code)}</p> : null}
-      {run.outcome === "needs_attention" ? <AttentionGuide state={state} /> : null}
+      {run.outcome === "needs_attention" ? <AttentionGuide state={state} texts={texts} /> : null}
       <div className="updates-actions">
         {(state.phase === "scheduled" || state.phase === "running") && !run.abortRequestedAt ? (
           <button type="button" disabled={props.busy} onClick={() => props.onCancel(run.id)}>
-            {TEXT.cancel}
+            {texts.cancel}
           </button>
         ) : null}
         {finished ? (
           <button type="button" disabled={props.busy} onClick={() => props.onAcknowledge(run.id)}>
-            {TEXT.acknowledge}
+            {texts.acknowledge}
           </button>
         ) : null}
       </div>
@@ -405,7 +374,8 @@ function RunPanel(props: {
 }
 
 /** What an admin needs when a run ended in needs_attention (docs/backups-and-recovery.md). */
-function AttentionGuide(props: { state: StateView }) {
+function AttentionGuide(props: { state: StateView; texts: AdminMessages }) {
+  const { texts } = props;
   const run = props.state.run;
   if (!run) {
     return null;
@@ -413,24 +383,32 @@ function AttentionGuide(props: { state: StateView }) {
   const schemaChanged = run.failure?.schemaChanged ?? null;
   return (
     <div className="updates-attention">
-      <h4>{TEXT.attentionTitle}</h4>
-      <p>{TEXT.attentionBody}</p>
-      <p>{TEXT.attentionSchema[String(schemaChanged) as "true" | "false" | "null"]}</p>
-      {run.recovery?.backup ? <p>{TEXT.attentionBackup(run.recovery.backup.file)}</p> : null}
-      <p>{TEXT.attentionCommand}</p>
+      <h4>{texts.attentionTitle}</h4>
+      <p>{texts.attentionBody}</p>
+      <p>
+        {schemaChanged === true
+          ? texts.attentionSchemaChanged
+          : schemaChanged === false
+            ? texts.attentionSchemaUnchanged
+            : texts.attentionSchemaUnknown}
+      </p>
+      {run.recovery?.backup ? (
+        <p>{interpolate(texts.attentionBackup, { file: run.recovery.backup.file })}</p>
+      ) : null}
+      <p>{texts.attentionCommand}</p>
       <pre>
         <code>docker compose exec updater cicd-updater recover show</code>
       </pre>
       {run.recovery && run.recovery.commands.length > 0 ? (
         <details>
-          <summary>{TEXT.attentionCommands}</summary>
+          <summary>{texts.attentionCommands}</summary>
           <pre>
             <code>{run.recovery.commands.join("\n")}</code>
           </pre>
         </details>
       ) : null}
       <p>
-        <a href={TEXT.runbookUrl}>{TEXT.attentionRunbook}</a>. {TEXT.attentionAcknowledge}
+        <a href={LINKS.runbook}>{texts.attentionRunbook}</a>. {texts.attentionAcknowledge}
       </p>
     </div>
   );
@@ -443,11 +421,12 @@ function ReleasePanel(props: {
   /** Why scheduling is not possible now; null: it is. */
   blockedReason: string | null;
   messages: Messages;
+  texts: AdminMessages;
   busy: boolean;
   onRefresh: () => void;
   onSchedule: (input: { version: string; leadSeconds: number; releaseSha256: string }) => void;
 }) {
-  const { releases, messages } = props;
+  const { releases, messages, texts } = props;
   const headingId = useId();
   const versionId = useId();
   const leadId = useId();
@@ -477,15 +456,15 @@ function ReleasePanel(props: {
 
   let body: ReactNode;
   if (props.error) {
-    body = <p>{explain(props.error, messages)}</p>;
+    body = <p>{explain(props.error, messages, texts)}</p>;
   } else if (!releases) {
-    body = <p>{TEXT.checking}</p>;
+    body = <p>{texts.checking}</p>;
   } else if (!chosen) {
-    body = refused.length === 0 ? <p>{TEXT.newest}</p> : <p>{TEXT.nothingInstallable}</p>;
+    body = refused.length === 0 ? <p>{texts.newest}</p> : <p>{texts.nothingInstallable}</p>;
   } else {
     body = (
       <form onSubmit={submit} className="updates-form">
-        <label htmlFor={versionId}>{TEXT.version}</label>
+        <label htmlFor={versionId}>{texts.version}</label>
         <select
           id={versionId}
           value={chosen.version}
@@ -500,12 +479,16 @@ function ReleasePanel(props: {
         <p className="updates-release">
           {chosen.notesUrl ? (
             <a href={chosen.notesUrl} target="_blank" rel="noopener noreferrer">
-              {TEXT.notes}
+              {texts.notes}
             </a>
           ) : null}{" "}
-          {chosen.releaseSha256 ? <span>{TEXT.digest(chosen.releaseSha256)}</span> : null}
+          {chosen.releaseSha256 ? (
+            <span>
+              {interpolate(texts.releaseDigest, { sha: chosen.releaseSha256.slice(0, 16) })}
+            </span>
+          ) : null}
         </p>
-        <label htmlFor={leadId}>{TEXT.start}</label>
+        <label htmlFor={leadId}>{texts.start}</label>
         <select
           id={leadId}
           value={leadSeconds}
@@ -513,12 +496,12 @@ function ReleasePanel(props: {
         >
           {props.leadTimes.map((seconds) => (
             <option key={seconds} value={seconds}>
-              {TEXT.leadTime(seconds)}
+              {formatLeadTime(texts, seconds)}
             </option>
           ))}
         </select>
         <button type="submit" disabled={props.busy || props.blockedReason !== null}>
-          {TEXT.schedule}
+          {texts.schedule}
         </button>
         {props.blockedReason ? <p>{props.blockedReason}</p> : null}
       </form>
@@ -527,7 +510,7 @@ function ReleasePanel(props: {
 
   return (
     <section aria-labelledby={headingId} className="updates-available">
-      <h3 id={headingId}>{TEXT.available}</h3>
+      <h3 id={headingId}>{texts.available}</h3>
       {body}
       {refused.length > 0 ? (
         <ul className="updates-refused">
@@ -540,7 +523,7 @@ function ReleasePanel(props: {
         </ul>
       ) : null}
       <button type="button" disabled={props.busy} onClick={props.onRefresh}>
-        {TEXT.checkAgain}
+        {texts.checkAgain}
       </button>
     </section>
   );

@@ -185,9 +185,12 @@ admin route:
 and the CSS to your static files; [example.html](frontend/vanilla/example.html) shows the two
 calls. No build step, no dependency.
 
-Both translate codes (blockers, refusals, failures, steps) with the SDK catalogs (`en`,
-`de`) where the SDK is available; the page's own sentences are English constants to
-translate.
+Texts come from the SDK's `/messages` in English and German: the `Messages` catalogs for
+codes (blockers, refusals, failures, steps) and the `AdminMessages` catalogs for the
+page's own sentences. The React page picks both by the browser's language (`messages` and
+`texts` props to override). The widget has English copies built in; a bundled app passes
+`{ messages: de, texts: adminDe }`. Set the two links in `LINKS` (manual update steps and
+the recovery runbook) in `UpdatesPage.tsx`.
 
 ## Step 5: edge (5 minutes)
 
