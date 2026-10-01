@@ -1,0 +1,189 @@
+name: cicd-updater build
+description: >-
+  Build one image and push it by digest, without a tag, with the OCI labels the
+  cicd-updater sidecar reads. Tags are added by the publish action after the smoke test.
+author: IT Systeme Flores UG (haftungsbeschränkt)
+
+inputs:
+  image:
+    description: Repository to push to, for example ghcr.io/acme/notes (lowercase, no tag).
+    required: true
+  context:
+    description: Build context.
+    default: "."
+  file:
+    description: Dockerfile path; empty means <context>/Dockerfile.
+    default: ""
+  target:
+    description: Dockerfile target stage.
+    default: ""
+  platforms:
+    description: Comma-separated platforms (linux/amd64, linux/arm64). QEMU is set up when one differs from the runner.
+    default: linux/amd64,linux/arm64
+  build-args:
+    description: Build arguments, one KEY=VALUE per line.
+    default: ""
+  version:
+    description: Plain release version (1.4.0); empty means derived from the pushed tag through tag-pattern.
+    default: ""
+  tag-pattern:
+    description: How a version maps to a Git tag; must match the sidecar's release.tagPattern.
+    default: v{version}
+  registry:
+    description: Registry to log in to; empty means the host of image.
+    default: ""
+  username:
+    description: Registry user; empty means the workflow's actor.
+    default: ""
+  password:
+    description: Registry password or token; empty skips the login (log in before this action).
+    default: ""
+  cache:
+    description: Build cache, gha (GitHub Actions cache) or none.
+    default: gha
+
+outputs:
+  digest:
+    description: The pushed digest (a manifest for one platform, an index for several).
+    value: ${{ steps.build.outputs.digest }}
+  metadata:
+    description: The build metadata JSON of docker/build-push-action.
+    value: ${{ steps.build.outputs.metadata }}
+  version:
+    description: The plain release version the image was labelled with.
+    value: ${{ steps.prep.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Node.js for the release tools
+      id: node
+      shell: bash
+      run: |
+        if command -v node > /dev/null 2>&1 && [ "$(node -p 'process.versions.node.split(".")[0]')" -ge 22 ]; then
+          echo "setup=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "setup=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Set up Node.js 22
+      if: steps.node.outputs.setup == 'true'
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: 22
+
+    - name: Version, labels and platforms
+      id: prep
+      shell: bash
+      env:
+        RELEASE_TOOLS: ${{ github.action_path }}/../lib/release-tools.mjs
+        IMAGE: ${{ inputs.image }}
+        VERSION: ${{ inputs.version }}
+        TAG_PATTERN: ${{ inputs.tag-pattern }}
+        PLATFORMS: ${{ inputs.platforms }}
+        REGISTRY: ${{ inputs.registry }}
+        USERNAME: ${{ inputs.username }}
+        CACHE: ${{ inputs.cache }}
+      run: |
+        set -euo pipefail
+        if ! printf '%s' "$IMAGE" | grep -Eq '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?(/[a-z0-9]+([._-][a-z0-9]+)*)+$'; then
+          echo "::error::image must be a lowercase repository without tag or digest, for example ghcr.io/acme/notes"
+          exit 1
+        fi
+        if [ -n "$VERSION" ]; then
+          tag="${TAG_PATTERN/\{version\}/$VERSION}"
+        else
+          tag="$GITHUB_REF_NAME"
+        fi
+        node "$RELEASE_TOOLS" version --tag "$tag" --tag-pattern "$TAG_PATTERN" --github-output "$GITHUB_OUTPUT"
+        created="$(git log -1 --format=%cI 2> /dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)"
+        first="${IMAGE%%/*}"
+        if [ -z "$REGISTRY" ]; then
+          case "$first" in
+            *.* | *:* | localhost) REGISTRY="$first" ;;
+            *) REGISTRY="docker.io" ;;
+          esac
+        fi
+        case "$(uname -m)" in
+          x86_64 | amd64) native="linux/amd64" ;;
+          aarch64 | arm64) native="linux/arm64" ;;
+          *) native="unknown" ;;
+        esac
+        qemu=false
+        IFS=',' read -ra wanted <<< "$PLATFORMS"
+        for platform in "${wanted[@]}"; do
+          platform="$(printf '%s' "$platform" | tr -d '[:space:]')"
+          case "$platform" in
+            linux/amd64 | linux/arm64) ;;
+            *)
+              echo "::error::platform $platform is not supported (linux/amd64, linux/arm64)"
+              exit 1
+              ;;
+          esac
+          if [ "$platform" != "$native" ]; then
+            qemu=true
+          fi
+        done
+        cache_from=""
+        cache_to=""
+        if [ "$CACHE" = gha ]; then
+          scope="cicd-updater-$(printf '%s' "$IMAGE-$PLATFORMS" | sha256sum | cut -c1-16)"
+          cache_from="type=gha,scope=$scope"
+          cache_to="type=gha,scope=$scope,mode=max"
+        fi
+        {
+          echo "created=$created"
+          echo "registry=$REGISTRY"
+          echo "username=${USERNAME:-$GITHUB_ACTOR}"
+          echo "qemu=$qemu"
+          echo "source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          echo "cache-from=$cache_from"
+          echo "cache-to=$cache_to"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Set up QEMU
+      if: steps.prep.outputs.qemu == 'true'
+      uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+    - name: Log in to the registry
+      if: inputs.password != ''
+      uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      with:
+        registry: ${{ steps.prep.outputs.registry }}
+        username: ${{ steps.prep.outputs.username }}
+        password: ${{ inputs.password }}
+
+    - name: Build and push by digest
+      id: build
+      uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      with:
+        context: ${{ inputs.context }}
+        file: ${{ inputs.file }}
+        target: ${{ inputs.target }}
+        platforms: ${{ inputs.platforms }}
+        build-args: ${{ inputs.build-args }}
+        labels: |
+          org.opencontainers.image.version=${{ steps.prep.outputs.version }}
+          org.opencontainers.image.revision=${{ github.sha }}
+          org.opencontainers.image.source=${{ steps.prep.outputs.source }}
+          org.opencontainers.image.created=${{ steps.prep.outputs.created }}
+        # Untagged: the publish action tags the index after the smoke test passed.
+        outputs: type=image,name=${{ inputs.image }},push-by-digest=true,name-canonical=true,push=true
+        # A platform digest stays a plain image manifest; the SBOM is attached at publish.
+        provenance: false
+        sbom: false
+        cache-from: ${{ steps.prep.outputs.cache-from }}
+        cache-to: ${{ steps.prep.outputs.cache-to }}
+
+    - name: Summary
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        DIGEST: ${{ steps.build.outputs.digest }}
+        PLATFORMS: ${{ inputs.platforms }}
+      run: |
+        echo "Pushed $IMAGE@$DIGEST ($PLATFORMS), untagged."
+        echo "- \`$IMAGE@$DIGEST\` ($PLATFORMS), untagged" >> "$GITHUB_STEP_SUMMARY"

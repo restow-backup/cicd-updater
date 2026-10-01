@@ -14,13 +14,15 @@
     "node": ">=22.12"
   },
   "scripts": {
-    "typecheck": "pnpm -r --workspace-concurrency=1 typecheck",
+    "typecheck": "pnpm -r --workspace-concurrency=1 typecheck && tsc -p scripts/tsconfig.json",
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "vitest run",
     "generate": "tsx scripts/generate.ts",
     "check:generated": "tsx scripts/generate.ts --check",
-    "build": "pnpm -r --workspace-concurrency=1 build"
+    "build": "pnpm -r --workspace-concurrency=1 build",
+    "lint:actions": "tsx scripts/lint-actions.ts",
+    "bundle": "pnpm --filter @cicd-updater/release-tools build"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",

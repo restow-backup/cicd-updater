@@ -1,0 +1,365 @@
+name: cicd-updater release
+description: >-
+  The whole release in one job for simple projects: build every image for all platforms
+  (QEMU), push by digest, smoke-test, then tag and sign the indexes, attach SBOMs, write
+  and sign release.json and publish the release. Nothing is tagged or published when a
+  step before fails.
+author: IT Systeme Flores UG (haftungsbeschränkt)
+
+inputs:
+  images:
+    description: >-
+      JSON {"<key>": {"repository": "ghcr.io/acme/notes", "context": ".", "file": null,
+      "target": null, "buildArgs": {}}}; the keys are the image keys of release.json.
+    required: true
+  platforms:
+    description: Comma-separated platforms (linux/amd64, linux/arm64).
+    default: linux/amd64,linux/arm64
+  version:
+    description: Plain release version; empty means derived from the pushed tag through tag-pattern.
+    default: ""
+  tag-pattern:
+    description: How a version maps to a Git tag; must match the sidecar's release.tagPattern.
+    default: v{version}
+  registry:
+    description: Registry to log in to; empty skips the login (log in before this action).
+    default: ""
+  username:
+    description: Registry user; empty means the workflow's actor.
+    default: ""
+  password:
+    description: Registry password or token.
+    default: ""
+  smoke:
+    description: Run the smoke test (needs compose-files, image-vars and health-url).
+    default: "true"
+  compose-files:
+    description: Smoke - comma- or newline-separated Compose files.
+    default: ""
+  env-example:
+    description: Smoke - the documented env file.
+    default: .env.example
+  image-vars:
+    description: 'Smoke - JSON {"<key>": "<ENV_VAR>"}.'
+    default: ""
+  health-url:
+    description: Smoke - URL the runner polls until the app is healthy.
+    default: ""
+  health-version-path:
+    description: Smoke - path of the version in the health JSON.
+    default: ""
+  upgrade-from:
+    description: Smoke - previous, none, or a version.
+    default: none
+  updater-config:
+    description: Smoke - updater.yaml for the upgrade through the sidecar.
+    default: ""
+  updater-image:
+    description: Smoke - the sidecar image pinned by digest.
+    default: ""
+  timeout-seconds:
+    description: Smoke - overall time limit.
+    default: "600"
+  extra-tags:
+    description: Comma-separated moving image tags (for example 1,latest).
+    default: ""
+  signing:
+    description: keyless, key or none. Empty means keyless on github.com; required elsewhere.
+    default: ""
+  cosign-key:
+    description: key mode - the PEM private key (from a secret) or a KMS URI.
+    default: ""
+  cosign-password:
+    description: key mode - the password of the private key.
+    default: ""
+  transparency-log:
+    description: key mode - also upload signatures to the public transparency log.
+    default: "false"
+  cosign-version:
+    description: cosign release to install; keep it on the minor version of the sidecar image.
+    default: v3.1.3
+  sbom:
+    description: Generate and attach an SPDX SBOM per platform image.
+    default: "true"
+  refuse-existing:
+    description: Refuse when the version tag already exists with other content.
+    default: "true"
+  policy-file:
+    description: The release policy file.
+    default: .cicd-updater/release-policy.yaml
+  notes-url:
+    description: Release notes URL; empty means the release page on GitHub.
+    default: ""
+  release-host:
+    description: github, gitea, gitlab or none. Empty means github on github.com; required elsewhere.
+    default: ""
+  api-url:
+    description: API base of the release host.
+    default: ""
+  token:
+    description: Token with write access to the releases.
+    default: ${{ github.token }}
+  publish-release:
+    description: Publish the release after the upload (false leaves a draft).
+    default: "true"
+
+outputs:
+  images:
+    description: The published images JSON (index digests).
+    value: ${{ steps.index.outputs.images }}
+  sha256:
+    description: SHA-256 of release.json.
+    value: ${{ steps.json.outputs.sha256 }}
+
+runs:
+  using: composite
+  steps:
+    - name: Node.js for the release tools
+      id: node
+      shell: bash
+      run: |
+        if command -v node > /dev/null 2>&1 && [ "$(node -p 'process.versions.node.split(".")[0]')" -ge 22 ]; then
+          echo "setup=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "setup=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Set up Node.js 22
+      if: steps.node.outputs.setup == 'true'
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: 22
+
+    - name: Mode, version and release host
+      id: prep
+      shell: bash
+      env:
+        RELEASE_TOOLS: ${{ github.action_path }}/../lib/release-tools.mjs
+        SIGNING: ${{ inputs.signing }}
+        COSIGN_KEY: ${{ inputs.cosign-key }}
+        VERSION: ${{ inputs.version }}
+        TAG_PATTERN: ${{ inputs.tag-pattern }}
+        RELEASE_HOST: ${{ inputs.release-host }}
+        NOTES_URL: ${{ inputs.notes-url }}
+        SMOKE: ${{ inputs.smoke }}
+        COMPOSE_FILES: ${{ inputs.compose-files }}
+        IMAGE_VARS: ${{ inputs.image-vars }}
+        HEALTH_URL: ${{ inputs.health-url }}
+      run: |
+        set -euo pipefail
+        on_github=false
+        if [ "${GITHUB_SERVER_URL:-}" = "https://github.com" ]; then on_github=true; fi
+        mode="$SIGNING"
+        if [ -z "$mode" ]; then
+          if [ "$on_github" = true ]; then mode=keyless; else
+            echo "::error::Input signing is required outside github.com (keyless, key or none)."
+            exit 1
+          fi
+        fi
+        case "$mode" in
+          keyless | none) ;;
+          key) if [ -z "$COSIGN_KEY" ]; then echo "::error::signing: key needs cosign-key."; exit 1; fi ;;
+          *) echo "::error::signing must be keyless, key or none."; exit 1 ;;
+        esac
+        if [ -z "$RELEASE_HOST" ]; then
+          if [ "$on_github" = true ]; then RELEASE_HOST=github; else
+            echo "::error::Input release-host is required outside github.com."
+            exit 1
+          fi
+        fi
+        if [ "$SMOKE" = "true" ] && { [ -z "$COMPOSE_FILES" ] || [ -z "$IMAGE_VARS" ] || [ -z "$HEALTH_URL" ]; }; then
+          echo "::error::The smoke test needs compose-files, image-vars and health-url (or smoke: false)."
+          exit 1
+        fi
+        if [ -n "$VERSION" ]; then tag="${TAG_PATTERN/\{version\}/$VERSION}"; else tag="$GITHUB_REF_NAME"; fi
+        node "$RELEASE_TOOLS" version --tag "$tag" --tag-pattern "$TAG_PATTERN" --github-output "$GITHUB_OUTPUT" > /dev/null
+        if [ -z "$NOTES_URL" ] && [ "$on_github" = true ]; then
+          NOTES_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$tag"
+        fi
+        dir="$RUNNER_TEMP/cicd-updater-release"
+        rm -rf "$dir"
+        mkdir -p "$dir"
+        {
+          echo "mode=$mode"
+          echo "host=$RELEASE_HOST"
+          echo "tag=$tag"
+          echo "notes-url=$NOTES_URL"
+          echo "dir=$dir"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+    - name: Log in to the registry
+      if: inputs.password != '' && inputs.registry != ''
+      uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      with:
+        registry: ${{ inputs.registry }}
+        username: ${{ inputs.username || github.actor }}
+        password: ${{ inputs.password }}
+
+    - name: Build and push by digest
+      id: build
+      shell: bash
+      env:
+        RELEASE_TOOLS: ${{ github.action_path }}/../lib/release-tools.mjs
+        IMAGES: ${{ inputs.images }}
+        PLATFORMS: ${{ inputs.platforms }}
+        VERSION: ${{ steps.prep.outputs.version }}
+      run: node "$RELEASE_TOOLS" build --images "$IMAGES" --version "$VERSION" --platforms "$PLATFORMS"
+
+    - name: Smoke test
+      if: inputs.smoke == 'true'
+      shell: bash
+      env:
+        RELEASE_TOOLS: ${{ github.action_path }}/../lib/release-tools.mjs
+        SMOKE_IMAGES: ${{ steps.build.outputs.smoke-images }}
+        COMPOSE_FILES: ${{ inputs.compose-files }}
+        ENV_EXAMPLE: ${{ inputs.env-example }}
+        IMAGE_VARS: ${{ inputs.image-vars }}
+        HEALTH_URL: ${{ inputs.health-url }}
+        HEALTH_VERSION_PATH: ${{ inputs.health-version-path }}
+        VERSION: ${{ steps.prep.outputs.version }}
+        UPGRADE_FROM: ${{ inputs.upgrade-from }}
+        UPDATER_CONFIG: ${{ inputs.updater-config }}
+        UPDATER_IMAGE: ${{ inputs.updater-image }}
+        TIMEOUT_SECONDS: ${{ inputs.timeout-seconds }}
+        RELEASE_TOKEN: ${{ inputs.token }}
+        DIR: ${{ steps.prep.outputs.dir }}
+      run: |
+        set -euo pipefail
+        args=(smoke --compose-files "$COMPOSE_FILES" --env-example "$ENV_EXAMPLE" --images "$SMOKE_IMAGES"
+          --image-vars "$IMAGE_VARS" --health-url "$HEALTH_URL" --expect-version "$VERSION"
+          --upgrade-from "$UPGRADE_FROM" --timeout-seconds "$TIMEOUT_SECONDS"
+          --report "$DIR/smoke-report.md" --github-output /dev/null)
+        if [ -n "$HEALTH_VERSION_PATH" ]; then args+=(--health-version-path "$HEALTH_VERSION_PATH"); fi
+        if [ -n "$UPDATER_CONFIG" ]; then args+=(--updater-config "$UPDATER_CONFIG" --updater-image "$UPDATER_IMAGE"); fi
+        status=0
+        node "$RELEASE_TOOLS" "${args[@]}" || status=$?
+        if [ -f "$DIR/smoke-report.md" ]; then cat "$DIR/smoke-report.md" >> "$GITHUB_STEP_SUMMARY"; fi
+        exit "$status"
+
+    - name: Create and tag the indexes
+      id: index
+      shell: bash
+      env:
+        RELEASE_TOOLS: ${{ github.action_path }}/../lib/release-tools.mjs
+        BUILT: ${{ steps.build.outputs.images }}
+        VERSION: ${{ steps.prep.outputs.version }}
+        EXTRA_TAGS: ${{ inputs.extra-tags }}
+        REFUSE_EXISTING: ${{ inputs.refuse-existing }}
+      run: |
+        set -euo pipefail
+        args=(index --images "$BUILT" --version "$VERSION" --extra-tags "$EXTRA_TAGS")
+        if [ "$REFUSE_EXISTING" != "true" ]; then args+=(--allow-existing); fi
+        node "$RELEASE_TOOLS" "${args[@]}"
+
+    - name: Install cosign
+      if: steps.prep.outputs.mode != 'none'
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      with:
+        cosign-release: ${{ inputs.cosign-version }}
+
+    - name: Signing key
+      id: key
+      if: steps.prep.outputs.mode == 'key'
+      shell: bash
+      env:
+        COSIGN_KEY: ${{ inputs.cosign-key }}
+      run: |
+        set -euo pipefail
+        umask 077
+        case "$COSIGN_KEY" in
+          *"-----BEGIN"*)
+            file="$RUNNER_TEMP/cicd-updater-cosign.key"
+            printf '%s\n' "$COSIGN_KEY" > "$file"
+            echo "ref=$file" >> "$GITHUB_OUTPUT"
+            ;;
+          *://*) echo "ref=$COSIGN_KEY" >> "$GITHUB_OUTPUT" ;;
+          *) echo "::error::cosign-key must be a PEM private key or a KMS URI."; exit 1 ;;
+        esac
+
+    - name: Install syft
+      if: inputs.sbom == 'true'
+      uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+
+    - name: Sign, attest and write release.json
+      id: json
+      shell: bash
+      env:
+        RELEASE_TOOLS: ${{ github.action_path }}/../lib/release-tools.mjs
+        PUBLISHED: ${{ steps.index.outputs.images }}
+        MODE: ${{ steps.prep.outputs.mode }}
+        KEY_REF: ${{ steps.key.outputs.ref }}
+        TRANSPARENCY_LOG: ${{ inputs.transparency-log }}
+        COSIGN_PASSWORD: ${{ inputs.cosign-password }}
+        SBOM: ${{ inputs.sbom }}
+        VERSION: ${{ steps.prep.outputs.version }}
+        TAG: ${{ steps.prep.outputs.tag }}
+        TAG_PATTERN: ${{ inputs.tag-pattern }}
+        POLICY_FILE: ${{ inputs.policy-file }}
+        NOTES_URL: ${{ steps.prep.outputs.notes-url }}
+        DIR: ${{ steps.prep.outputs.dir }}
+      run: |
+        set -euo pipefail
+        signing=(--signing "$MODE")
+        if [ "$MODE" = key ]; then signing+=(--key "$KEY_REF"); fi
+        if [ "$TRANSPARENCY_LOG" = "true" ]; then signing+=(--transparency-log); fi
+        node "$RELEASE_TOOLS" sign-images --images "$PUBLISHED" "${signing[@]}"
+        if [ "$SBOM" = "true" ]; then
+          node "$RELEASE_TOOLS" sbom --images "$PUBLISHED" "${signing[@]}" --out-dir "$DIR/sbom" --github-output /dev/null
+        fi
+        create=(json create --images "$PUBLISHED" --version "$VERSION" --tag "$TAG" --tag-pattern "$TAG_PATTERN"
+          --signing "$MODE" --out "$DIR/release.json")
+        if [ -f "$POLICY_FILE" ]; then create+=(--policy-file "$POLICY_FILE"); fi
+        if [ -n "$NOTES_URL" ]; then create+=(--notes-url "$NOTES_URL"); fi
+        node "$RELEASE_TOOLS" "${create[@]}"
+        node "$RELEASE_TOOLS" json validate --file "$DIR/release.json" --tag "$TAG"
+        if [ "$MODE" != none ]; then
+          node "$RELEASE_TOOLS" json sign --file "$DIR/release.json" --bundle "$DIR/release.json.sigstore.json" \
+            "${signing[@]}" --github-output /dev/null
+          if [ "$MODE" = key ]; then
+            cosign public-key --key "$KEY_REF" > "$DIR/.cosign.pub"
+            verify=(json verify --file "$DIR/release.json" --public-key "$DIR/.cosign.pub")
+            if [ "$TRANSPARENCY_LOG" = "true" ]; then verify+=(--transparency-log); fi
+            node "$RELEASE_TOOLS" "${verify[@]}"
+            rm -f "$DIR/.cosign.pub"
+          elif [ "${GITHUB_SERVER_URL:-}" = "https://github.com" ]; then
+            workflow="${GITHUB_WORKFLOW_REF#"$GITHUB_REPOSITORY"/}"
+            node "$RELEASE_TOOLS" json verify --file "$DIR/release.json" \
+              --github-repository "$GITHUB_REPOSITORY" --workflow "${workflow%%@*}"
+          fi
+        fi
+
+    - name: Remove the key file
+      if: always() && steps.prep.outputs.mode == 'key'
+      shell: bash
+      run: rm -f "$RUNNER_TEMP/cicd-updater-cosign.key"
+
+    - name: Upload and publish the release
+      if: steps.prep.outputs.host != 'none'
+      shell: bash
+      env:
+        RELEASE_TOOLS: ${{ github.action_path }}/../lib/release-tools.mjs
+        HOST: ${{ steps.prep.outputs.host }}
+        API_URL: ${{ inputs.api-url }}
+        TAG: ${{ steps.prep.outputs.tag }}
+        PRERELEASE: ${{ steps.prep.outputs.prerelease }}
+        RELEASE_TOKEN: ${{ inputs.token }}
+        PUBLISH: ${{ inputs.publish-release }}
+        DIR: ${{ steps.prep.outputs.dir }}
+      run: |
+        set -euo pipefail
+        files=()
+        for file in "$DIR"/release.json "$DIR"/release.json.sigstore.json "$DIR"/smoke-report.md "$DIR"/sbom/*.spdx.json; do
+          if [ -f "$file" ]; then files+=("$file"); fi
+        done
+        list="$(IFS=,; printf '%s' "${files[*]}")"
+        args=(upload --host "$HOST" --repository "$GITHUB_REPOSITORY" --tag "$TAG" --files "$list")
+        if [ -n "$API_URL" ]; then args+=(--api-url "$API_URL"); fi
+        if [ "$PRERELEASE" = "true" ]; then args+=(--prerelease); fi
+        if [ "$PUBLISH" != "true" ]; then args+=(--draft); fi
+        node "$RELEASE_TOOLS" "${args[@]}"

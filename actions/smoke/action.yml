@@ -1,0 +1,158 @@
+name: cicd-updater smoke
+description: >-
+  Start the release from its Compose files with the pushed digests and the env file
+  as .env.example writes it, wait for health and the version, optionally upgrade from
+  the previous release (through the sidecar itself), and tear everything down.
+author: IT Systeme Flores UG (haftungsbeschränkt)
+
+inputs:
+  compose-files:
+    description: Comma- or newline-separated Compose files, relative to working-directory.
+    required: true
+  env-example:
+    description: The documented env file; every ${VAR} the Compose files use must appear in it.
+    default: .env.example
+  images:
+    description: 'JSON {"<key>": {"repository": "...", "digest": "sha256:..."}} of the images to test.'
+    required: true
+  image-vars:
+    description: 'JSON {"<key>": "<ENV_VAR>"}: the env key each image is set through.'
+    required: true
+  health-url:
+    description: URL the runner polls until the app is healthy (publish the port in a Compose file for the smoke).
+    required: true
+  health-version-path:
+    description: Path of the version in the health JSON ($.version); empty skips the version check.
+    default: ""
+  expect-version:
+    description: The version the health answer must report; empty means the version of the pushed tag.
+    default: ""
+  tag-pattern:
+    description: How a version maps to a Git tag (for expect-version from the tag).
+    default: v{version}
+  upgrade-from:
+    description: previous (the newest earlier release), none, or a version.
+    default: none
+  feed-type:
+    description: Feed of earlier releases for upgrade-from (github, gitea, gitlab, static); empty means this GitHub repository.
+    default: ""
+  feed-url:
+    description: Feed URL for upgrade-from; empty means this GitHub repository.
+    default: ""
+  token:
+    description: Token for reading earlier releases (sent only to the feed origin).
+    default: ${{ github.token }}
+  updater-config:
+    description: updater.yaml of the project; when set, the upgrade runs through the sidecar (trust mode none, file feed).
+    default: ""
+  updater-image:
+    description: The sidecar image (pinned by digest) for the upgrade through the sidecar.
+    default: ""
+  timeout-seconds:
+    description: Overall time limit.
+    default: "600"
+  working-directory:
+    description: Directory with the Compose files.
+    default: "."
+  registry:
+    description: Registry to log in to for pulling; empty skips the login.
+    default: ""
+  username:
+    description: Registry user; empty means the workflow's actor.
+    default: ""
+  password:
+    description: Registry password or token.
+    default: ""
+
+outputs:
+  report:
+    description: Path of the Markdown report.
+    value: ${{ steps.smoke.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - name: Node.js for the release tools
+      id: node
+      shell: bash
+      run: |
+        if command -v node > /dev/null 2>&1 && [ "$(node -p 'process.versions.node.split(".")[0]')" -ge 22 ]; then
+          echo "setup=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "setup=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Set up Node.js 22
+      if: steps.node.outputs.setup == 'true'
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: 22
+
+    - name: Log in to the registry
+      if: inputs.password != '' && inputs.registry != ''
+      uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      with:
+        registry: ${{ inputs.registry }}
+        username: ${{ inputs.username || github.actor }}
+        password: ${{ inputs.password }}
+
+    - name: Smoke test
+      id: smoke
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        RELEASE_TOOLS: ${{ github.action_path }}/../lib/release-tools.mjs
+        COMPOSE_FILES: ${{ inputs.compose-files }}
+        ENV_EXAMPLE: ${{ inputs.env-example }}
+        IMAGES: ${{ inputs.images }}
+        IMAGE_VARS: ${{ inputs.image-vars }}
+        HEALTH_URL: ${{ inputs.health-url }}
+        HEALTH_VERSION_PATH: ${{ inputs.health-version-path }}
+        EXPECT_VERSION: ${{ inputs.expect-version }}
+        TAG_PATTERN: ${{ inputs.tag-pattern }}
+        UPGRADE_FROM: ${{ inputs.upgrade-from }}
+        FEED_TYPE: ${{ inputs.feed-type }}
+        FEED_URL: ${{ inputs.feed-url }}
+        RELEASE_TOKEN: ${{ inputs.token }}
+        UPDATER_CONFIG: ${{ inputs.updater-config }}
+        UPDATER_IMAGE: ${{ inputs.updater-image }}
+        TIMEOUT_SECONDS: ${{ inputs.timeout-seconds }}
+      run: |
+        set -euo pipefail
+        if [ -z "$EXPECT_VERSION" ] && [ "$GITHUB_REF_TYPE" = tag ]; then
+          EXPECT_VERSION="$(node "$RELEASE_TOOLS" version --tag "$GITHUB_REF_NAME" --tag-pattern "$TAG_PATTERN" --github-output /dev/null | sed -n 's/^version=//p')"
+        fi
+        if [ -z "$RELEASE_TOKEN" ]; then
+          unset RELEASE_TOKEN
+        fi
+        report="$RUNNER_TEMP/cicd-updater-smoke-report.md"
+        args=(smoke
+          --compose-files "$COMPOSE_FILES"
+          --env-example "$ENV_EXAMPLE"
+          --images "$IMAGES"
+          --image-vars "$IMAGE_VARS"
+          --health-url "$HEALTH_URL"
+          --upgrade-from "$UPGRADE_FROM"
+          --timeout-seconds "$TIMEOUT_SECONDS"
+          --report "$report")
+        if [ -n "$HEALTH_VERSION_PATH" ]; then args+=(--health-version-path "$HEALTH_VERSION_PATH"); fi
+        if [ -n "$EXPECT_VERSION" ]; then args+=(--expect-version "$EXPECT_VERSION"); fi
+        if [ -n "$FEED_TYPE" ]; then args+=(--feed-type "$FEED_TYPE"); fi
+        if [ -n "$FEED_URL" ]; then args+=(--feed-url "$FEED_URL"); fi
+        if [ -n "$UPDATER_CONFIG" ]; then
+          if [ -z "$UPDATER_IMAGE" ]; then
+            echo "::error::updater-image is required with updater-config"
+            exit 1
+          fi
+          args+=(--updater-config "$UPDATER_CONFIG" --updater-image "$UPDATER_IMAGE")
+        fi
+        node "$RELEASE_TOOLS" "${args[@]}"
+
+    - name: Report
+      if: always()
+      shell: bash
+      run: |
+        report="$RUNNER_TEMP/cicd-updater-smoke-report.md"
+        if [ -f "$report" ]; then
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+        fi

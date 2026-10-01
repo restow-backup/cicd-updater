@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { jsonSchemas, openApiDocument } from "@cicd-updater/protocol";
 import { stringify } from "yaml";
-import { renderConfigReference } from "./config-reference.ts";
+import { renderConfigReference } from "./config-reference.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const check = process.argv.includes("--check");
