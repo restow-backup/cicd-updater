@@ -55,6 +55,7 @@ You connect your app to the sidecar: an admin page, a banner for users, the audi
 | [HTTP API](http-api.md) | Every endpoint of the sidecar, problem types, versioning and exactly-once journal ingestion. |
 | [SDK](sdk.md) | The TypeScript package: client, feed check, token verifier, protocol, SemVer, messages, error handling. |
 | [React](react.md) | The maintenance hooks and components, styling and translations. |
+| [Web app template](../templates/web-app/README.md) | A copy-paste starter for an existing web app: Compose fragment, commented `updater.yaml`, release workflow, backend endpoints (TypeScript, Python, plain HTTP), the admin "Updates" page and the banner (React or plain JavaScript), an integration checklist. |
 
 ## Reference
 
@@ -71,6 +72,8 @@ You connect your app to the sidecar: an admin page, a banner for users, the audi
 
 - [Examples](../examples/): `node-postgres` (TypeScript, SDK and React), `python-postgres`
   (Python, HTTP API) and `static-site` (CLI only).
+- [Templates](../templates/): release workflows for GitHub, Forgejo and GitLab, and the
+  [web app template](../templates/web-app/README.md).
 - [OpenAPI document](../openapi/updater-api.v1.yaml) and [JSON Schemas](../schemas/).
 - [SECURITY.md](../SECURITY.md) for reporting vulnerabilities, [CONTRIBUTING.md](../CONTRIBUTING.md),
   [CHANGELOG.md](../CHANGELOG.md).

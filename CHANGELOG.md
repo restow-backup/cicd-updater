@@ -7,6 +7,20 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Added
+
+- `templates/web-app`: a copy-paste starter for connecting an existing web app: the sidecar
+  as a Compose fragment, a commented `updater.yaml`, the release workflow and policy,
+  backend endpoints with authorization, step-up and audit hooks (TypeScript with Express
+  and Hono adapters, FastAPI, a plain HTTP reference), health with version, migration
+  probe queries, the admin "Updates" page and the maintenance banner (React and plain
+  JavaScript), and an integration checklist. Type-checked against the SDK in CI.
+
+### Changed
+
+- README: who cicd-updater is for and not for, what it guarantees and what not, the run
+  step by step, and a guided setup path for existing projects.
+
 ## [1.0.0]
 
 The first release (the date is added when it is tagged). It establishes the 1.x contracts listed below; within 1.x they change
