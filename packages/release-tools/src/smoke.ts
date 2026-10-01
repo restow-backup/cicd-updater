@@ -137,7 +137,15 @@ export async function runSmoke(options: SmokeOptions, deps: SmokeDeps): Promise<
         : execOptions,
     );
   const project = `cicd-updater-smoke-${randomBytes(3).toString("hex")}`;
-  const work = await fs.mkdtemp(path.join(os.tmpdir(), "cicd-updater-smoke-"));
+  // With the upgrade through the sidecar, the sidecar container mounts files of the work
+  // directory (feed, updater.yaml): they must be where the Docker daemon sees them, as the
+  // checkout is. The runner's temp directory is not, when the smoke itself runs in a
+  // container (the release CLI image, GitLab CI with dind; found in the e2e).
+  const work = await fs.mkdtemp(
+    options.updater
+      ? path.join(path.resolve(options.cwd), ".cicd-updater-smoke-")
+      : path.join(os.tmpdir(), "cicd-updater-smoke-"),
+  );
   const envFile = options.updater
     ? path.join(path.resolve(options.cwd), ".cicd-updater-smoke.env")
     : path.join(work, "smoke.env");
@@ -289,7 +297,14 @@ export async function runSmoke(options: SmokeOptions, deps: SmokeDeps): Promise<
     if (options.upgradeFrom && options.updater) {
       const updater = options.updater;
       await step("upgrade through the sidecar", async () => {
-        const plan = await sidecarUpgradePlan({ options, updater, work, project, envFile });
+        const plan = await sidecarUpgradePlan({
+          options,
+          updater,
+          work,
+          project,
+          envFile,
+          composeOverride: override,
+        });
         await fs.writeFile(override, plan.override(await fs.readFile(override, "utf8")));
         const service = updater.service ?? "updater";
         const profile = ["--profile", updater.profile ?? "updater"];
@@ -366,9 +381,13 @@ export async function runSmoke(options: SmokeOptions, deps: SmokeDeps): Promise<
     }
     ok = false;
   } finally {
-    const down = await exec(compose(["down", "-v", "--remove-orphans", "--timeout", "10"]), {
-      cwd: options.cwd,
-    }).catch(() => null);
+    // With the sidecar's profile: `down` leaves services of profiles it was not given
+    // running (the sidecar survived the smoke; found in the e2e).
+    const profiles = options.updater ? ["--profile", options.updater.profile ?? "updater"] : [];
+    const down = await exec(
+      compose([...profiles, "down", "-v", "--remove-orphans", "--timeout", "10"]),
+      { cwd: options.cwd },
+    ).catch(() => null);
     steps.push({
       name: "teardown",
       ok: down?.exitCode === 0,
@@ -403,6 +422,8 @@ export async function sidecarUpgradePlan(input: {
   work: string;
   project: string;
   envFile: string;
+  /** The smoke's own override (no restart policies, the sidecar service). */
+  composeOverride?: string;
 }): Promise<{ feedDir: string; configFile: string; override: (current: string) => string }> {
   const { options, updater, work, project, envFile } = input;
   const version = options.expectVersion;
@@ -460,11 +481,20 @@ export async function sidecarUpgradePlan(input: {
     feed: { type: "file", path: "/smoke-feed" },
     tagPattern: "v{version}",
   };
+  // The sidecar must see the project as the smoke started it: the same Compose files
+  // (the smoke's port overrides included) plus the smoke's own override. Otherwise it
+  // recreates the services without them (found in the e2e).
   config.compose = {
     ...(config.compose ?? {}),
     projectDir: cwd,
     projectName: project,
     envFile: path.relative(cwd, envFile),
+    // Relative to the project directory, as updater.yaml requires (the work directory
+    // with the override is inside the checkout).
+    files: [
+      ...options.composeFiles.map((file) => path.relative(cwd, path.resolve(cwd, file))),
+      ...(input.composeOverride ? [path.relative(cwd, input.composeOverride)] : []),
+    ],
   };
   config.state = { ...(config.state ?? {}), dir: "/state" };
   const configFile = path.join(work, "updater.yaml");

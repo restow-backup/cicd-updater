@@ -544,6 +544,18 @@ describe("smoke", () => {
     );
   });
 
+  it("tears down the sidecar's profile too when the upgrade runs through the sidecar", async () => {
+    await project();
+    const run = world();
+    await runSmoke(
+      { ...options(), updater: { configFile: "updater.yaml", image: "ghcr.io/x/updater:1" } },
+      run.deps,
+    );
+    const down = run.calls.at(-1) ?? [];
+    expect(down).toEqual(expect.arrayContaining(["--profile", "updater", "down", "-v"]));
+    expect(down.indexOf("--profile")).toBeLessThan(down.indexOf("down"));
+  });
+
   it("fails on undocumented variables, crashes and timeouts, and still tears down", async () => {
     await project();
     await fs.writeFile(path.join(dir, ".env.example"), "# nothing\n");
@@ -615,6 +627,7 @@ describe("smoke", () => {
       work,
       project: "cicd-updater-smoke-abc",
       envFile: path.join(dir, ".cicd-updater-smoke.env"),
+      composeOverride: path.join(work, "no-restart.yml"),
     });
     const config = parse(await fs.readFile(plan.configFile, "utf8"));
     expect(config.trust).toEqual({
@@ -627,6 +640,8 @@ describe("smoke", () => {
       projectDir: dir,
       projectName: "cicd-updater-smoke-abc",
       envFile: ".cicd-updater-smoke.env",
+      // the smoke's Compose files and its own override, as the smoke started the project
+      files: [...options().composeFiles, path.join("work", "no-restart.yml")],
     });
     const document = await fs.readFile(path.join(plan.feedDir, "release.json"));
     expect(parseReleaseDocument(document)).toMatchObject({ ok: true });

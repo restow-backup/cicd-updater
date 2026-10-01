@@ -29993,7 +29993,9 @@ async function runSmoke(options, deps) {
     argv2[0] === "docker" && argv2[1] === "compose" ? { ...execOptions, unsetEnv: [...execOptions.unsetEnv ?? [], ...envKeys] } : execOptions
   );
   const project = `cicd-updater-smoke-${randomBytes(3).toString("hex")}`;
-  const work = await fs5.mkdtemp(path4.join(os.tmpdir(), "cicd-updater-smoke-"));
+  const work = await fs5.mkdtemp(
+    options.updater ? path4.join(path4.resolve(options.cwd), ".cicd-updater-smoke-") : path4.join(os.tmpdir(), "cicd-updater-smoke-")
+  );
   const envFile = options.updater ? path4.join(path4.resolve(options.cwd), ".cicd-updater-smoke.env") : path4.join(work, "smoke.env");
   const override = path4.join(work, "no-restart.yml");
   const compose = (args) => [
@@ -30135,7 +30137,14 @@ async function runSmoke(options, deps) {
     if (options.upgradeFrom && options.updater) {
       const updater = options.updater;
       await step("upgrade through the sidecar", async () => {
-        const plan = await sidecarUpgradePlan({ options, updater, work, project, envFile });
+        const plan = await sidecarUpgradePlan({
+          options,
+          updater,
+          work,
+          project,
+          envFile,
+          composeOverride: override
+        });
         await fs5.writeFile(override, plan.override(await fs5.readFile(override, "utf8")));
         const service = updater.service ?? "updater";
         const profile = ["--profile", updater.profile ?? "updater"];
@@ -30208,9 +30217,11 @@ async function runSmoke(options, deps) {
     }
     ok = false;
   } finally {
-    const down = await exec2(compose(["down", "-v", "--remove-orphans", "--timeout", "10"]), {
-      cwd: options.cwd
-    }).catch(() => null);
+    const profiles = options.updater ? ["--profile", options.updater.profile ?? "updater"] : [];
+    const down = await exec2(
+      compose([...profiles, "down", "-v", "--remove-orphans", "--timeout", "10"]),
+      { cwd: options.cwd }
+    ).catch(() => null);
     steps.push({
       name: "teardown",
       ok: down?.exitCode === 0,
@@ -30289,7 +30300,13 @@ async function sidecarUpgradePlan(input2) {
     ...config2.compose ?? {},
     projectDir: cwd,
     projectName: project,
-    envFile: path4.relative(cwd, envFile)
+    envFile: path4.relative(cwd, envFile),
+    // Relative to the project directory, as updater.yaml requires (the work directory
+    // with the override is inside the checkout).
+    files: [
+      ...options.composeFiles.map((file2) => path4.relative(cwd, path4.resolve(cwd, file2))),
+      ...input2.composeOverride ? [path4.relative(cwd, input2.composeOverride)] : []
+    ]
   };
   config2.state = { ...config2.state ?? {}, dir: "/state" };
   const configFile = path4.join(work, "updater.yaml");
