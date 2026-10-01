@@ -7,3 +7,4 @@ coverage/
 .env
 !examples/**/.env.example
 test-results/
+__pycache__/

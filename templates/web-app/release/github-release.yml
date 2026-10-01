@@ -1,0 +1,150 @@
+# cicd-updater: release workflow for a web app (GitHub Actions, keyless signing).
+#
+# Copy to .github/workflows/release.yml (keep the file name: updater.yaml trusts exactly
+# this workflow at the release tag) and adjust the lines marked TODO(cicd-updater).
+# It runs when a tag v* is pushed:
+#
+#   build (one job per architecture, native runners): build the image, push it by digest
+#     without a tag, start it with docker-compose.yml and .env.example (smoke test)
+#   release (after both smokes passed): tag and sign the multi-arch index, attach SBOMs,
+#     write and sign release.json, upload it and publish the release
+#
+# Nothing is tagged and no release is public before the smoke tests passed.
+# Also needed in the repository: .cicd-updater/release-policy.yaml (release/release-policy.yaml),
+# docker-compose.smoke.yml (compose/docker-compose.smoke.yml), and a Dockerfile that turns
+# the build argument VERSION into APP_VERSION (backend/node/health.ts).
+#
+# Forgejo or Gitea Actions (key mode): templates/forgejo/release.yml of cicd-updater.
+# GitLab CI (keyless): templates/gitlab/.gitlab-ci.yml. Same steps, same inputs.
+#
+# Pin the cicd-updater actions to the commit SHA of the release you reviewed (the tag is
+# shown for readability); Dependabot or Renovate keep the pin current.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # TODO(cicd-updater): the repository of the image, lowercase. Not named like the .env key
+  # APP_IMAGE, which carries the digest.
+  APP_REPOSITORY: ghcr.io/acme/myapp
+
+jobs:
+  build:
+    name: Build and smoke ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the app image
+        id: app
+        uses: restow-backup/cicd-updater/actions/build@v1.0.0
+        with:
+          image: ${{ env.APP_REPOSITORY }}
+          file: Dockerfile # TODO(cicd-updater): your Dockerfile
+          platforms: ${{ matrix.platform }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Smoke test
+        uses: restow-backup/cicd-updater/actions/smoke@v1.0.0
+        with:
+          compose-files: docker-compose.yml,docker-compose.smoke.yml
+          images: '{"app": {"repository": "${{ env.APP_REPOSITORY }}", "digest": "${{ steps.app.outputs.digest }}"}}'
+          image-vars: '{"app": "APP_IMAGE"}' # the .env key of updater.yaml services[].imageVar
+          health-url: http://127.0.0.1:3000/healthz # TODO(cicd-updater): as published by the smoke override
+          # No health-version-path: the health endpoint reveals the version only to the
+          # sidecar's token, which the runner does not have. The build sets the image label
+          # org.opencontainers.image.version, and the sidecar checks the version on the host.
+          upgrade-from: previous
+          # TODO(cicd-updater): throwaway values for every variable your Compose files
+          # require (${VAR:?}) and .env.example leaves empty.
+          env: |
+            POSTGRES_PASSWORD=smoke-${{ github.run_id }}-${{ github.run_attempt }}
+            PROJECT_DIR=${{ github.workspace }}
+          # The upgrade from the previous release through the sidecar itself, as operators
+          # will run it: add docker-compose.updater.yml to compose-files (or paste the
+          # updater service into docker-compose.yml) and pin the sidecar image by digest.
+          # updater-config: updater.yaml
+          # updater-image: ghcr.io/restow-backup/cicd-updater:1.0.0@sha256:<digest>
+
+      - name: Keep the digest
+        env:
+          APP_DIGEST: ${{ steps.app.outputs.digest }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p digests
+          printf '%s' "$APP_DIGEST" > "digests/app-$ARCH"
+
+      - name: Upload the digests
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digests-${{ matrix.arch }}
+          path: digests/*
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Sign and publish
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write # the GitHub release
+      packages: write # tags, signatures and SBOM attestations
+      id-token: write # keyless signing with the workflow's OIDC identity
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download the digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: digests-*
+          path: digests
+          merge-multiple: true
+
+      - name: The platform digests per image
+        id: digests
+        run: |
+          printf 'images={"app": {"repository": "%s", "digests": ["%s", "%s"]}}\n' \
+            "$APP_REPOSITORY" "$(cat digests/app-amd64)" "$(cat digests/app-arm64)" >> "$GITHUB_OUTPUT"
+
+      - name: Tag, sign and attach SBOMs
+        id: publish
+        uses: restow-backup/cicd-updater/actions/publish@v1.0.0
+        with:
+          images: ${{ steps.digests.outputs.images }}
+          signing: keyless
+          registry: ghcr.io
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: release.json and the release
+        uses: restow-backup/cicd-updater/actions/release-json@v1.0.0
+        with:
+          images: ${{ steps.publish.outputs.images }}
+          signing: keyless
+          release-host: github

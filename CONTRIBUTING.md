@@ -12,7 +12,7 @@ Security issues are not reported as public issues: see [SECURITY.md](SECURITY.md
 
 ```sh
 pnpm install
-pnpm typecheck        # tsc for every package and the scripts
+pnpm typecheck        # tsc for every package, the scripts and the web app template
 pnpm lint             # Biome (lint and format check); pnpm format writes the formatting
 pnpm test             # Vitest, all unit tests
 pnpm test:coverage    # with the coverage gate (90 % lines for engine and protocol)
@@ -41,7 +41,7 @@ regenerate and commit them:
 | `packages/sidecar` | the sidecar process: Docker and Compose, hooks, backups, verifier, HTTP API, CLI |
 | `packages/release-tools` | the release side: build, smoke, index, signing, release.json, upload |
 | `packages/sdk` | the published SDK `@restow-backup/cicd-updater` |
-| `actions/`, `templates/` | composite actions and copyable release workflows |
+| `actions/`, `templates/` | composite actions, copyable release workflows and the web app template (`templates/web-app`, type-checked against the SDK sources by `templates/tsconfig.json`) |
 | `docker/` | the sidecar image |
 | `examples/` | complete example projects |
 

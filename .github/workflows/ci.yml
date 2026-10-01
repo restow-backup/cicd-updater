@@ -5,7 +5,7 @@ name: CI
 #
 #   lint       Biome; actionlint on the workflows; the composite actions, templates
 #              and example workflows (pins, inputs, every run script through shellcheck)
-#   typecheck  tsc for every package and the scripts
+#   typecheck  tsc for every package, the scripts and the web app template
 #   unit       Vitest with the coverage gate (90 % lines for engine and protocol)
 #   generated  JSON Schemas, OpenAPI, the configuration reference, THIRD_PARTY_NOTICES
 #              and the action bundle are regenerated and must equal the committed files;
@@ -56,7 +56,10 @@ jobs:
         run: pnpm lint:actions
 
       - name: Shell scripts
-        run: shellcheck docker/*.sh examples/update-demo.sh
+        run: shellcheck docker/*.sh examples/update-demo.sh templates/web-app/backend/http/*.sh
+
+      - name: The web app template's Python compiles
+        run: python3 -m py_compile templates/web-app/backend/python/*.py
 
       - name: actionlint
         # Built from source at a fixed version; the Go checksum database verifies it.

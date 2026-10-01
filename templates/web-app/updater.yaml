@@ -1,0 +1,132 @@
+# cicd-updater: the sidecar's configuration for a web app with a backend and PostgreSQL.
+# Put it into the project directory on the host (next to docker-compose.yml). Only the
+# operator writes this file; the app must not be able to change it.
+#
+# Every key: docs/configuration.md. Hooks: docs/hooks.md. Unknown keys and typos are an
+# error (exit code 64), so a misspelt safety setting cannot be silently ignored.
+# Check it offline before the first start:
+#
+#   docker compose run --rm --no-deps updater config check
+#
+# Every place you must adapt is marked TODO(cicd-updater).
+version: 1
+
+compose:
+  # compose.projectDir comes from CICD_UPDATER_COMPOSE__PROJECT_DIR (the Compose fragment),
+  # so this file stays the same on every host.
+  #
+  # TODO(cicd-updater): only when you merge the fragment with -f (variant B): the same
+  # files in the same order. With the updater service pasted into docker-compose.yml
+  # (variant A), leave it out; Compose's own discovery finds the file.
+  # files: [docker-compose.yml, docker-compose.updater.yml]
+  # The sidecar's own profile; passed to every Compose call it makes.
+  profiles: [updater]
+
+auth:
+  # The token file is mode 0640, owner root, group tokenGroupId. TODO(cicd-updater): the
+  # group id of your backend's user when it runs as non-root (a fixed gid in its Dockerfile,
+  # for example `groupadd --gid 10001 app`). 0 only works when the backend runs as root.
+  tokenGroupId: 0
+
+release:
+  feed:
+    # TODO(cicd-updater): where your releases are published (docs/feeds.md).
+    #   github:  https://github.com/<owner>/<repo>
+    #   gitea:   https://<host>[/<prefix>]/<owner>/<repo>        (Forgejo and Gitea)
+    #   gitlab:  https://<host>/<group>[/<subgroup>...]/<project>
+    #   static:  https://<host>/<path>/index.json
+    type: github
+    url: https://github.com/acme/myapp
+    # A private repository: a read-only token in a root-owned file.
+    # tokenFile: /opt/myapp/feed-token
+  channel: stable # beta: pre-releases too
+
+trust:
+  # How the sidecar knows a release is yours (docs/trust-modes.md). Exactly one block.
+  #
+  #   keyless  GitHub Actions or GitLab CI sign with the workflow's OIDC identity; the
+  #            sidecar checks exactly this repository's release workflow at the release tag.
+  #   key      any CI signs with a cosign key pair from its secrets; the sidecar holds the
+  #            public key(s). Forgejo and Gitea Actions use this mode.
+  #   none     nothing is verified: whoever can change your release document chooses what
+  #            runs next to the Docker socket. Test installations only.
+  mode: keyless
+  keyless:
+    github:
+      repository: acme/myapp # TODO(cicd-updater)
+      workflow: .github/workflows/release.yml # the file name of release/github-release.yml
+  # mode: key
+  # key:
+  #   publicKeyFiles: [/opt/myapp/cosign.pub]
+  # mode: none
+  # none:
+  #   acknowledgeUnsigned: true
+
+# The managed services: the sidecar replaces exactly these images. `image` is the key in
+# release.json (the release workflow's image key), `imageVar` the .env key the service reads
+# its image from. The imageVar keys are the ONLY lines the sidecar ever writes in .env.
+# Services are started in groups by startOrder; each group must be healthy before the next.
+services:
+  - { name: api, image: app, imageVar: APP_IMAGE, startOrder: 1 } # TODO(cicd-updater)
+  # A worker from the same image starts after the API:
+  # - { name: worker, image: app, imageVar: APP_IMAGE, startOrder: 2 }
+  # An edge you release yourself keeps serving the maintenance page during the update and
+  # when a run needs attention:
+  # - { name: web, image: web, imageVar: WEB_IMAGE, startOrder: 3, stopBeforeUpdate: false, stopOnAttention: false }
+
+# env:
+#   versionVar: APP_VERSION   # also write the plain version into .env (another writable key)
+
+hooks:
+  # A verified backup before anything is stopped (docs/backups-and-recovery.md).
+  # TODO(cicd-updater): mysql for MySQL/MariaDB, volume for file data, command for others.
+  backup:
+    type: postgres
+    service: db # the database service of your Compose file
+    retention:
+      keep: 3
+      maxAgeDays: 14
+    # Encrypt it; keep the private key off the host (age-keygen):
+    # encryption:
+    #   ageRecipients: [age1...]
+
+  # Decides whether a rollback is safe: the value must be unchanged after a failed update.
+  # TODO(cicd-updater): the preset of your migration tool: drizzle, prisma, knex, alembic,
+  # django, flyway, rails, golang-migrate, node-pg-migrate, typeorm, sequelize; or `query`.
+  # backend/sql/migration-probe.sql lists the exact queries.
+  migrationProbe:
+    type: postgres
+    service: db
+    preset: prisma
+
+  # Optional: run migrations as a separate step with the new image, before the services
+  # start. Without it, run them at container start as before.
+  # migrate:
+  #   service: api
+  #   argv: ["npm", "run", "migrate"]
+
+  # The app check after the update: healthy AND reporting the new version.
+  health:
+    type: http
+    http:
+      url: http://api:3000/healthz # TODO(cicd-updater): service name, port and path
+      sendToken: true # the app reveals its version only to the sidecar (backend/node/health.ts)
+      versionJsonPath: $.version
+
+  # A last end-to-end check, ideally a page your users load, through the edge.
+  smoke:
+    checks:
+      - { type: http, url: http://api:3000/healthz, expectStatus: [200] } # TODO(cicd-updater)
+
+rollback:
+  # probe: roll back only when the probe proves the schema unchanged (needs a probe).
+  # always: the app has no persistent schema. never: every late failure needs attention.
+  policy: probe
+
+# The read-only status your edge forwards (/public/v1/status) and the built-in page it
+# shows while the app is down. No versions unless you allow them.
+publicStatus:
+  enabled: true
+  showVersions: false
+maintenancePage:
+  enabled: true

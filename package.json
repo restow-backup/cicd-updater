@@ -14,7 +14,7 @@
     "node": ">=22.12"
   },
   "scripts": {
-    "typecheck": "pnpm -r --workspace-concurrency=1 typecheck && tsc -p scripts/tsconfig.json",
+    "typecheck": "pnpm -r --workspace-concurrency=1 typecheck && tsc -p scripts/tsconfig.json && tsc -p templates/tsconfig.json",
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "vitest run",

@@ -1,0 +1,88 @@
+# cicd-updater: the sidecar as a Compose fragment for an existing web app.
+#
+# Two ways to use it (README.md of this template, step 3):
+#
+#   A. Paste the `updater` service, the additions to your backend service and the three
+#      volumes into your docker-compose.yml. One file, nothing else to configure.
+#   B. Keep this file next to your docker-compose.yml and merge it with -f:
+#        docker compose -f docker-compose.yml -f docker-compose.updater.yml --profile updater up -d
+#      Then list both files in updater.yaml (compose.files) in the same order, because the
+#      sidecar runs Compose itself. Setting COMPOSE_FILE=docker-compose.yml:docker-compose.updater.yml
+#      in .env saves typing the -f flags on the host.
+#
+# Compose `include:` is not recommended: an included file is loaded as its own model and
+# would have to declare the shared network itself.
+#
+# Nothing changes until you start the profile: without `--profile updater` your app runs and
+# is updated by hand as before. Every place you must adapt is marked TODO(cicd-updater).
+# Reference: docs/getting-started.md (step 3), docs/architecture.md (volumes, networks).
+
+services:
+  # TODO(cicd-updater): the name of your backend service, the one that calls the sidecar.
+  # Its image must already come from a digest-pinned variable of .env:
+  #   image: ${APP_IMAGE:?set APP_IMAGE in .env}
+  api:
+    environment:
+      # Unset in .env: the default. Set empty (UPDATER_URL=): in-app updates are off here.
+      UPDATER_URL: ${UPDATER_URL-http://updater:8090}
+      UPDATER_TOKEN_FILE: /run/cicd-updater/token
+    volumes:
+      # The token the sidecar generates, read-only. Mount it into this one service only:
+      # every container that can read it can schedule updates. Without the sidecar the
+      # file does not exist and the app shows the manual update steps.
+      - updater-shared:/run/cicd-updater:ro
+
+  updater:
+    profiles: ["updater"] # opt-in
+    # TODO(cicd-updater): verify the image with cosign and pin the verified digest in .env
+    # (docs/upgrading-the-updater.md). Never take it from a key the sidecar writes
+    # (APP_IMAGE and the other imageVar keys): a run refuses to start then.
+    image: ${CICD_UPDATER_IMAGE:?set CICD_UPDATER_IMAGE in .env}
+    restart: unless-stopped
+    stop_grace_period: 30s # the sidecar needs up to 8 seconds to stop cleanly
+    labels:
+      # Lets a second sidecar for the same project be detected (blocker multiple_updaters).
+      io.github.restow-backup.cicd-updater.role: sidecar
+    environment:
+      CICD_UPDATER_CONFIG: ${PROJECT_DIR:?set PROJECT_DIR in .env}/updater.yaml
+      CICD_UPDATER_COMPOSE__PROJECT_DIR: ${PROJECT_DIR:?set PROJECT_DIR in .env}
+      # A private registry: a Docker config.json with an "auths" object only.
+      # CICD_UPDATER_DOCKER__REGISTRY_AUTH_FILE: ${PROJECT_DIR:?set PROJECT_DIR in .env}/registry-auth.json
+    volumes:
+      # Root-equivalent access to the host: the reason the sidecar is opt-in, unpublished
+      # and pinned (docs/security.md).
+      - /var/run/docker.sock:/var/run/docker.sock
+      # The project directory at the SAME path inside and outside, so relative paths in
+      # the Compose files resolve as on the host. The sidecar writes only the imageVar
+      # keys of .env here (and env.versionVar, if set).
+      - ${PROJECT_DIR:?set PROJECT_DIR in .env}:${PROJECT_DIR:?set PROJECT_DIR in .env}
+      # status.json, the verified release documents and the backups (/state/backups,
+      # mode 0700). Backups live in this volume: to keep them on another disk, place the
+      # whole volume there (see `volumes:` below), not a second volume at /state/backups.
+      - updater-state:/state
+      # The generated token (/shared/token), read-only for the backend above.
+      - updater-shared:/shared
+      # Inputs of the isolated signature verifier (keyless and key mode).
+      - updater-verify:/verify
+    # The internal network only, and NO `ports:`: a published port is the blocker
+    # api_exposed. Your edge reaches /public/v1/ over this network.
+    networks: [internal] # TODO(cicd-updater): the network your backend and edge share
+    security_opt: ["no-new-privileges:true"]
+    # The image has the same HEALTHCHECK; repeated here so it is visible.
+    healthcheck:
+      test: ["CMD", "cicd-updater", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  updater-state:
+  # Backups on another disk: bind the whole state volume to a directory there.
+  #   driver: local
+  #   driver_opts: { type: none, o: bind, device: /srv/backup-disk/myapp-updater-state }
+  updater-shared:
+  updater-verify:
+
+networks:
+  internal: {} # TODO(cicd-updater): the network of your docker-compose.yml (merged with -f)

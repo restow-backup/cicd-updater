@@ -1,0 +1,9 @@
+# cicd-updater: used only by the release smoke test on the CI runner (release/github-release.yml).
+# It publishes the backend's health endpoint on the runner's loopback, so the runner can
+# poll it. Copy it next to your docker-compose.yml and list it in `compose-files` of the
+# smoke step. Never use it in production.
+services:
+  # TODO(cicd-updater): your backend service and its port.
+  api:
+    ports:
+      - "127.0.0.1:3000:3000"

@@ -1,0 +1,16 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "allowJs": true,
+    "checkJs": true,
+    "paths": {
+      "@restow-backup/cicd-updater": ["../packages/sdk/src/index.ts"],
+      "@restow-backup/cicd-updater/*": ["../packages/sdk/src/*.ts"],
+      "react": ["../packages/sdk/node_modules/@types/react/index.d.ts"],
+      "react/*": ["../packages/sdk/node_modules/@types/react/*.d.ts"]
+    }
+  },
+  "include": ["web-app/**/*.ts", "web-app/**/*.tsx", "web-app/**/*.js"]
+}

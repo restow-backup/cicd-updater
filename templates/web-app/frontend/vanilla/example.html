@@ -1,0 +1,29 @@
+<!doctype html>
+<!--
+  cicd-updater: how a server-rendered admin page uses the widget (no build step).
+  Copy updates-widget.js and ../updates.css to your static files and adapt the paths.
+  The banner belongs on every signed-in page; the panel only on the admin page.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Updates</title>
+    <link rel="stylesheet" href="/static/updates.css" />
+  </head>
+  <body>
+    <div id="update-banner"></div>
+    <main>
+      <section id="updates"></section>
+    </main>
+    <script type="module">
+      import { mountMaintenanceBanner, mountUpdatesPanel } from "/static/updates-widget.js";
+
+      mountMaintenanceBanner(document.getElementById("update-banner"));
+      mountUpdatesPanel(document.getElementById("updates"), {
+        // TODO(cicd-updater): your "confirm it is you" flow (backend answers step_up_required).
+        onStepUp: () => location.assign("/reauth?next=/admin/updates"),
+      });
+    </script>
+  </body>
+</html>

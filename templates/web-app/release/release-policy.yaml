@@ -1,0 +1,10 @@
+# cicd-updater: the upgrade constraints of the NEXT release. Copy to
+# .cicd-updater/release-policy.yaml in your repository; it is reviewed with the code it
+# belongs to and becomes part of the signed release.json (docs/release-side.md).
+minimumFromVersion: null # e.g. 1.2.0: older installations must install 1.2.x first
+requiresUpdater: ">=1.0.0" # the lowest sidecar version this release needs
+requiresEnv: [] # env keys that must be set in .env before the update, e.g. [SEARCH_URL]
+manualSteps:
+  required: false # true: the sidecar refuses the release; the operator updates by hand
+  summary: null
+  url: null
