@@ -316,7 +316,7 @@ describe("recovery commands", () => {
     ).toEqual([
       "docker compose -p notes --profile updater stop api worker",
       `docker compose -p notes --profile updater exec -T updater cicd-updater backups cat notes-20261102-100000Z-1.0.0-to-1.1.0.pgdump | docker compose -p notes --profile updater exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "\${POSTGRES_DB:-$POSTGRES_USER}" --clean --if-exists'`,
-      "docker compose -p notes --profile updater exec -T updater cicd-updater recover restore-env r-1793642400000-abcd",
+      "docker compose -p notes --profile updater exec updater cicd-updater recover restore-env r-1793642400000-abcd",
       "docker compose -p notes --profile updater up -d",
     ]);
   });
@@ -335,7 +335,7 @@ describe("recovery commands", () => {
     expect(mysql[1]).toContain("| age -d -i <path-to-your-age-identity> | gunzip |");
     const none = renderRecoveryCommands({ ...base, stopServices: [], backup: null });
     expect(none).toEqual([
-      "docker compose -p notes --profile updater exec -T updater cicd-updater recover restore-env r-1793642400000-abcd",
+      "docker compose -p notes --profile updater exec updater cicd-updater recover restore-env r-1793642400000-abcd",
       "docker compose -p notes --profile updater up -d",
     ]);
   });

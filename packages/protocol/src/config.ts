@@ -469,9 +469,13 @@ const backupSchema = z
           .default([])
           .meta({ description: "Env keys whose values are passed to the backup container." }),
         network: z
-          .enum(["project", "none"])
+          .string()
+          .regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/)
           .default("project")
-          .meta({ description: "project: the project's default network." }),
+          .meta({
+            description:
+              "project: the project's default network; none; or the key of a network in the Compose file (where the database is).",
+          }),
         outputFile: z
           .string()
           .regex(FILE_NAME_PATTERN)

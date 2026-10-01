@@ -138,7 +138,7 @@ a { color: var(--accent); }
 export const MAINTENANCE_JS = `(function () {
   "use strict";
   var root = document.documentElement;
-  var statusUrl = root.getAttribute("data-status-url") || "../status";
+  var statusUrl = root.getAttribute("data-status-url") || "/public/v1/status";
   var homeUrl = root.getAttribute("data-home-url") || "/";
   var catalogs = JSON.parse(document.getElementById("catalogs").textContent || "{}");
   var languages = Object.keys(catalogs);
@@ -222,34 +222,50 @@ export const MAINTENANCE_JS = `(function () {
 })();
 `;
 
+/** Where the sidecar serves the page and the public status. */
+export const DEFAULT_ASSET_BASE = "/public/v1/maintenance/";
+export const DEFAULT_STATUS_URL = "/public/v1/status";
+
+export interface PageOptions {
+  /** URL of the public status (default /public/v1/status). */
+  statusUrl?: string;
+  /** Where the page goes when the update is over (default /). */
+  homeUrl?: string;
+  /** Prefix of the CSS, script and logo URLs (default /public/v1/maintenance/; "" for relative). */
+  assetBase?: string;
+}
+
 export function renderIndexHtml(
   branding: Branding,
   languages: readonly string[],
-  options: { statusUrl?: string; homeUrl?: string } = {},
+  options: PageOptions = {},
 ): string {
   const name = branding.productName ? escapeHtml(branding.productName) : "";
+  // Absolute by default: an edge serves the page in place of any address of the app
+  // (an error fallback), where relative URLs would point elsewhere.
+  const assets = escapeHtml(options.assetBase ?? DEFAULT_ASSET_BASE);
   const catalogsJson = JSON.stringify(catalogSubset(languages)).replace(/</g, "\\u003c");
   const first = catalogs[languages[0] ?? "en"] ?? catalogs.en;
   return `<!doctype html>
-<html lang="${escapeHtml(first?.locale ?? "en")}" data-status-url="${escapeHtml(options.statusUrl ?? "../status")}" data-home-url="${escapeHtml(options.homeUrl ?? "/")}">
+<html lang="${escapeHtml(first?.locale ?? "en")}" data-status-url="${escapeHtml(options.statusUrl ?? DEFAULT_STATUS_URL)}" data-home-url="${escapeHtml(options.homeUrl ?? "/")}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>${name ? `${name} – ` : ""}${escapeHtml(first?.ui.maintenanceTitle ?? "Maintenance")}</title>
-<link rel="stylesheet" href="maintenance.css">
+<link rel="stylesheet" href="${assets}maintenance.css">
 <style>:root { --accent: ${branding.accentColor}; }</style>
 </head>
 <body>
 <main>
-<header>${branding.logo ? `<img src="${branding.logo.name}" alt="${name}">` : ""}<h1 id="title">${escapeHtml(first?.ui.maintenanceTitle ?? "Maintenance")}</h1></header>
+<header>${branding.logo ? `<img src="${assets}${branding.logo.name}" alt="${name}">` : ""}<h1 id="title">${escapeHtml(first?.ui.maintenanceTitle ?? "Maintenance")}</h1></header>
 <p id="message">${escapeHtml(first?.ui.maintenanceBody ?? "")}</p>
 <div class="progress" id="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="bar"></div></div>
 <ol id="steps"></ol>
 <footer><span id="hint"></span>${branding.supportUrl ? ` <a href="${escapeHtml(branding.supportUrl)}" rel="noopener">${escapeHtml(branding.supportUrl)}</a>` : ""}</footer>
 </main>
 <script type="application/json" id="catalogs">${catalogsJson}</script>
-<script src="maintenance.js"></script>
+<script src="${assets}maintenance.js"></script>
 </body>
 </html>
 `;
@@ -258,7 +274,7 @@ export function renderIndexHtml(
 /** Every file of the page, by name. */
 export async function maintenanceFiles(
   config: Pick<UpdaterConfig, "maintenancePage">,
-  options: { statusUrl?: string; homeUrl?: string } = {},
+  options: PageOptions = {},
 ): Promise<Record<string, PageFile>> {
   const settings = config.maintenancePage;
   const branding = await loadBranding(settings.brandingFile);

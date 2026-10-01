@@ -38,8 +38,10 @@ release:
       --images "{\"web\": {\"repository\": \"$WEB_IMAGE_REPOSITORY\", \"buildArgs\": {\"VERSION\": \"{version}\"}}}"
     - BUILT="$(sed -n 's/^images=//p' build.env)"
     - SMOKE="$(sed -n 's/^smoke-images=//p' build.env)"
+    # The site runs in the dind service: publish on all interfaces for the health check.
+    - printf 'services:\n  web:\n    ports: !override\n      - "8080:8080"\n' > smoke-gitlab.yml
     - >-
-      cicd-updater release smoke --compose-files docker-compose.yml,docker-compose.smoke.yml
+      cicd-updater release smoke --compose-files docker-compose.yml,smoke-gitlab.yml
       --images "$SMOKE" --image-vars '{"web": "WEB_IMAGE"}'
       --health-url http://docker:8080/version.json --health-version-path '$.version'
       --expect-version "$VERSION" --report smoke-report.md

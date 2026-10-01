@@ -58,6 +58,32 @@ export function registryOf(ref: string): string {
     : "docker.io";
 }
 
+const DOCKER_HUB_KEYS = new Set(["docker.io", "index.docker.io", "registry-1.docker.io"]);
+
+/**
+ * The credentials of one registry in a Docker `auths` object. Keys may be written
+ * as a bare host, with a scheme or with a path (`https://ghcr.io`,
+ * `https://index.docker.io/v1/`); Docker Hub has several names.
+ */
+export function authEntryFor(
+  auths: Readonly<Record<string, unknown>> | undefined,
+  host: string,
+): unknown {
+  const wanted = host.toLowerCase();
+  const normalize = (key: string): string =>
+    key
+      .toLowerCase()
+      .replace(/^[a-z]+:\/\//, "")
+      .split("/")[0] ?? "";
+  for (const [key, entry] of Object.entries(auths ?? {})) {
+    const name = normalize(key);
+    if (name === wanted || (DOCKER_HUB_KEYS.has(wanted) && DOCKER_HUB_KEYS.has(name))) {
+      return entry;
+    }
+  }
+  return undefined;
+}
+
 /** Classify cosign output (design 5.3 fetch 2). */
 export function classifyCosignFailure(text: string): VerifyFailure {
   const t = text.toLowerCase();
@@ -152,9 +178,7 @@ export class CosignVerifier implements Verifier {
         auths?: Record<string, unknown>;
       };
       const host = registryOf(ref);
-      const entry =
-        raw.auths?.[host] ??
-        (host === "docker.io" ? raw.auths?.["https://index.docker.io/v1/"] : undefined);
+      const entry = authEntryFor(raw.auths, host);
       if (entry) {
         dockerConfig = path.join(dir, "docker");
         await fs.mkdir(dockerConfig, { mode: 0o755 });

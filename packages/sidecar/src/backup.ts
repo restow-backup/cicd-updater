@@ -371,10 +371,11 @@ export class DockerBackupRunner implements BackupRunner {
       await fs.writeFile(envPath, `${lines.join("\n")}\n`, { mode: 0o600 });
       await docker.volumeCreate(volume);
       const model = await docker.composeConfig();
+      const key = command.network === "project" ? "default" : command.network;
       const network =
         command.network === "none"
           ? "none"
-          : (model.networks.default?.name ?? `${this.options.projectName}_default`);
+          : (model.networks[key]?.name ?? `${this.options.projectName}_${key}`);
       const result = await docker.run(
         [
           "--network",

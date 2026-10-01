@@ -725,12 +725,9 @@
                 },
                 "network": {
                   "default": "project",
-                  "description": "project: the project's default network.",
+                  "description": "project: the project's default network; none; or the key of a network in the Compose file (where the database is).",
                   "type": "string",
-                  "enum": [
-                    "project",
-                    "none"
-                  ]
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
                 },
                 "outputFile": {
                   "default": "backup.out",

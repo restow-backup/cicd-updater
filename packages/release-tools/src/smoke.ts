@@ -125,6 +125,17 @@ export function renderReport(result: { ok: boolean; steps: SmokeStep[] }, title:
 
 export async function runSmoke(options: SmokeOptions, deps: SmokeDeps): Promise<SmokeResult> {
   const steps: SmokeStep[] = [];
+  // Compose prefers the shell environment over --env-file: a CI variable with the
+  // name of an image variable (APP_IMAGE=ghcr.io/acme/notes) would otherwise win
+  // over the pushed digest. Compose calls therefore run without the env file's keys.
+  const envKeys = new Set<string>();
+  const exec: Exec = (argv, execOptions = {}) =>
+    deps.exec(
+      argv,
+      argv[0] === "docker" && argv[1] === "compose"
+        ? { ...execOptions, unsetEnv: [...(execOptions.unsetEnv ?? []), ...envKeys] }
+        : execOptions,
+    );
   const project = `cicd-updater-smoke-${randomBytes(3).toString("hex")}`;
   const work = await fs.mkdtemp(path.join(os.tmpdir(), "cicd-updater-smoke-"));
   const envFile = options.updater
@@ -163,14 +174,17 @@ export async function runSmoke(options: SmokeOptions, deps: SmokeDeps): Promise<
   };
   const example = await fs.readFile(path.resolve(options.cwd, options.envExample), "utf8");
   const writeEnv = async (images: Record<string, SmokeImage>) => {
-    await fs.writeFile(
-      envFile,
-      smokeEnvFile(example, {
-        ...imageEnv(images, options.imageVars),
-        ...(options.extraEnv ?? {}),
-      }),
-      { mode: 0o600 },
-    );
+    const text = smokeEnvFile(example, {
+      ...imageEnv(images, options.imageVars),
+      ...(options.extraEnv ?? {}),
+    });
+    for (const line of text.split("\n")) {
+      const key = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line)?.[1];
+      if (key) {
+        envKeys.add(key);
+      }
+    }
+    await fs.writeFile(envFile, text, { mode: 0o600 });
   };
   const waitHealthy = async (version: string | null): Promise<string> => {
     const deadline = deps.now() + options.timeoutSeconds * 1000;
@@ -194,7 +208,7 @@ export async function runSmoke(options: SmokeOptions, deps: SmokeDeps): Promise<
       } catch (error) {
         last = (error as Error).message;
       }
-      const ps = await deps.exec(compose(["ps", "-a", "--format", "json"]), { cwd: options.cwd });
+      const ps = await exec(compose(["ps", "-a", "--format", "json"]), { cwd: options.cwd });
       const exited = ps.stdout
         .split("\n")
         .filter(Boolean)
@@ -207,7 +221,7 @@ export async function runSmoke(options: SmokeOptions, deps: SmokeDeps): Promise<
         })
         .filter((entry) => entry.State === "exited" && entry.ExitCode !== 0);
       if (exited.length > 0) {
-        const logs = await deps.exec(compose(["logs", "--no-color", "--tail", "40"]), {
+        const logs = await exec(compose(["logs", "--no-color", "--tail", "40"]), {
           cwd: options.cwd,
         });
         throw new Error(
@@ -237,7 +251,7 @@ export async function runSmoke(options: SmokeOptions, deps: SmokeDeps): Promise<
     await writeEnv(start);
     await fs.writeFile(override, "services: {}\n");
     await step("compose config", async () => {
-      const services = await deps.exec(compose(["config", "--services"]), { cwd: options.cwd });
+      const services = await exec(compose(["config", "--services"]), { cwd: options.cwd });
       if (services.exitCode !== 0) {
         throw new Error(services.stderr.slice(-1500));
       }
@@ -249,7 +263,7 @@ export async function runSmoke(options: SmokeOptions, deps: SmokeDeps): Promise<
       return `${names.length} services, restart policies off`;
     });
     await step(options.upgradeFrom ? `start ${options.upgradeFrom.version}` : "start", async () => {
-      const result = await deps.exec(
+      const result = await exec(
         compose([
           "up",
           "-d",
@@ -280,7 +294,7 @@ export async function runSmoke(options: SmokeOptions, deps: SmokeDeps): Promise<
         const service = updater.service ?? "updater";
         const profile = ["--profile", updater.profile ?? "updater"];
         const run = (args: string[], timeoutMs = 120_000) =>
-          deps.exec(compose([...profile, ...args]), { cwd: options.cwd, timeoutMs });
+          exec(compose([...profile, ...args]), { cwd: options.cwd, timeoutMs });
         const up = await run(["up", "-d", "--no-build", service]);
         if (up.exitCode !== 0) {
           throw new Error(`the sidecar did not start: ${up.stderr.slice(-1000)}`);
@@ -335,7 +349,7 @@ export async function runSmoke(options: SmokeOptions, deps: SmokeDeps): Promise<
     } else if (options.upgradeFrom) {
       await writeEnv(options.images);
       await step("upgrade", async () => {
-        const result = await deps.exec(compose(["up", "-d", "--no-build", "--pull", "missing"]), {
+        const result = await exec(compose(["up", "-d", "--no-build", "--pull", "missing"]), {
           cwd: options.cwd,
           timeoutMs: (options.timeoutSeconds + 60) * 1000,
         });
@@ -352,9 +366,9 @@ export async function runSmoke(options: SmokeOptions, deps: SmokeDeps): Promise<
     }
     ok = false;
   } finally {
-    const down = await deps
-      .exec(compose(["down", "-v", "--remove-orphans", "--timeout", "10"]), { cwd: options.cwd })
-      .catch(() => null);
+    const down = await exec(compose(["down", "-v", "--remove-orphans", "--timeout", "10"]), {
+      cwd: options.cwd,
+    }).catch(() => null);
     steps.push({
       name: "teardown",
       ok: down?.exitCode === 0,
@@ -470,7 +484,10 @@ export async function sidecarUpgradePlan(input: {
         image: updater.image,
         profiles: [updater.profile ?? "updater"],
         restart: "no",
-        environment: { CICD_UPDATER_CONFIG: "/smoke-config/updater.yaml" },
+        environment: {
+          CICD_UPDATER_CONFIG: "/smoke-config/updater.yaml",
+          CICD_UPDATER_COMPOSE__PROJECT_DIR: cwd,
+        },
         volumes: [
           "/var/run/docker.sock:/var/run/docker.sock",
           `${cwd}:${cwd}`,
@@ -486,7 +503,12 @@ export async function sidecarUpgradePlan(input: {
         "smoke-updater-state": {},
         "smoke-updater-shared": {},
       };
-      return stringify(base);
+      // Replace (not merge) the sidecar's environment and volumes of the project's
+      // Compose file: its PROJECT_DIR mount, registry auth file and other overrides
+      // belong to the production host, not to the CI runner (Compose 2.24 or newer).
+      return stringify(base)
+        .replace(/\n {4}environment:\n/, "\n    environment: !override\n")
+        .replace(/\n {4}volumes:\n/, "\n    volumes: !override\n");
     },
   };
 }

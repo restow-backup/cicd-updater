@@ -17,7 +17,7 @@ export type ReleaseHostType = "github" | "gitea" | "gitlab";
 
 export interface PublishInput {
   host: ReleaseHostType;
-  /** API base: `https://api.github.com`, `https://git.example.com/api/v1`, `https://gitlab.example.com/api/v4`. */
+  /** API base or server URL: `https://api.github.com`, `https://git.example.com` (`/api/v1` is added), `https://gitlab.example.com` (`/api/v4` is added). */
   apiUrl: string;
   /** `owner/repo`, or the GitLab project path. */
   repository: string;
@@ -252,7 +252,23 @@ async function gitlab(input: PublishInput, http: Http): Promise<PublishResult> {
   return { url: body._links?.self ?? null, uploaded };
 }
 
-export async function publishRelease(input: PublishInput): Promise<PublishResult> {
+/**
+ * The API base of a release host. Forgejo/Gitea and GitLab accept the server URL
+ * (`https://git.example.com`, also with a path prefix) or the API base itself.
+ */
+export function apiBaseOf(host: ReleaseHostType, url: string): string {
+  const base = url.replace(/\/+$/, "");
+  if (host === "gitea" && !/\/api\/v1$/.test(base)) {
+    return `${base}/api/v1`;
+  }
+  if (host === "gitlab" && !/\/api\/v4$/.test(base)) {
+    return `${base}/api/v4`;
+  }
+  return base;
+}
+
+export async function publishRelease(rawInput: PublishInput): Promise<PublishResult> {
+  const input = { ...rawInput, apiUrl: apiBaseOf(rawInput.host, rawInput.apiUrl) };
   const fetcher = input.fetch ?? fetch;
   const headers: Record<string, string> =
     input.host === "github"

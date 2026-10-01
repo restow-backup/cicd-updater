@@ -5,6 +5,7 @@ import { parseReleaseDocument } from "@cicd-updater/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
+  apiBaseOf,
   attestSbomArgs,
   buildImages,
   checkTag,
@@ -492,6 +493,26 @@ describe("smoke", () => {
     cwd: dir,
   });
 
+  it("hides runner variables named like env file keys from Compose, and passes extra values", async () => {
+    await project();
+    const seen: { argv: string[]; unset: readonly string[] }[] = [];
+    const w = world();
+    const exec: Exec = async (argv, execOptions) => {
+      seen.push({ argv: [...argv], unset: execOptions?.unsetEnv ?? [] });
+      return w.deps.exec(argv, execOptions);
+    };
+    const result = await runSmoke(
+      { ...options(), extraEnv: { POSTGRES_PASSWORD: "smoke-only" } },
+      { ...w.deps, exec },
+    );
+    expect(result.ok).toBe(true);
+    const composeCalls = seen.filter((call) => call.argv[1] === "compose");
+    expect(composeCalls.length).toBeGreaterThan(1);
+    for (const call of composeCalls.slice(1)) {
+      expect(call.unset).toEqual(expect.arrayContaining(["APP_IMAGE", "POSTGRES_PASSWORD"]));
+    }
+  });
+
   it("checks the env, starts by digest without restart policies, waits for the version and tears down", async () => {
     await project();
     const { calls, deps } = world();
@@ -599,7 +620,11 @@ describe("smoke", () => {
     });
     const document = await fs.readFile(path.join(plan.feedDir, "release.json"));
     expect(parseReleaseDocument(document)).toMatchObject({ ok: true });
-    const override = parse(plan.override("services: {}\n"));
+    const overrideText = plan.override("services: {}\n");
+    expect(overrideText).toContain("environment: !override");
+    expect(overrideText).toContain("volumes: !override");
+    const override = parse(overrideText);
+    expect(override.services.updater.environment.CICD_UPDATER_COMPOSE__PROJECT_DIR).toBe(dir);
     expect(override.services.updater.volumes).toContain(
       "/var/run/docker.sock:/var/run/docker.sock",
     );
@@ -1035,5 +1060,32 @@ describe("sbom", () => {
     expect(() => attestSbomArgs("ghcr.io/acme/notes:1.4.0", "x.json", { mode: "keyless" })).toThrow(
       /by digest/,
     );
+  });
+});
+
+describe("release hosts", () => {
+  it("accept the server URL or the API base", () => {
+    expect(apiBaseOf("gitea", "https://git.example.com/")).toBe("https://git.example.com/api/v1");
+    expect(apiBaseOf("gitea", "https://example.com/git/api/v1")).toBe(
+      "https://example.com/git/api/v1",
+    );
+    expect(apiBaseOf("gitlab", "https://gitlab.com")).toBe("https://gitlab.com/api/v4");
+    expect(apiBaseOf("github", "https://api.github.com/")).toBe("https://api.github.com");
+  });
+
+  it("default to keyless signing only on github.com and GitLab CI", async () => {
+    const run = (env: Record<string, string>) =>
+      runReleaseCli(["sign-images", "--images", JSON.stringify(IMAGES)], {
+        env,
+        io: { out: () => undefined, err: () => undefined },
+        exec: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+        fetch,
+        now: () => new Date(),
+      });
+    expect(await run({ GITHUB_ACTIONS: "true", GITHUB_SERVER_URL: "https://github.com" })).toBe(0);
+    expect(await run({ GITLAB_CI: "true" })).toBe(0);
+    expect(
+      await run({ GITHUB_ACTIONS: "true", GITHUB_SERVER_URL: "https://git.example.com" }),
+    ).toBe(2);
   });
 });

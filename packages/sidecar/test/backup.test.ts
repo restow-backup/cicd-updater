@@ -325,6 +325,33 @@ describe("volume archives and commands", () => {
     await expect(fs.readdir(path.join(stateDir, "tmp"))).resolves.toEqual([]);
   });
 
+  it("joins a named network of the Compose file when the database is not on the default one", async () => {
+    const image = `ghcr.io/acme/backup:1@sha256:${"a".repeat(64)}`;
+    const runner = new ScriptedRunner()
+      .answer(() => ({ stdout: "" }))
+      .when(["config", "--format", "json"], {
+        stdout: JSON.stringify({
+          name: "notes",
+          services: {},
+          networks: { internal: { name: "notes_internal" } },
+        }),
+      })
+      .when(["--entrypoint", "cat"], { file: "BACKUP-BYTES" });
+    const { backup } = setup(runner, (input) => {
+      input.hooks = {
+        ...input.hooks,
+        backup: {
+          type: "command",
+          command: { image, argv: ["backup"], network: "internal" },
+        },
+        migrationProbe: { type: "none" },
+      };
+    });
+    await backup.create(input());
+    const command = runner.argvs.find((argv) => argv.includes(image));
+    expect(command?.[command.indexOf("--network") + 1]).toBe("notes_internal");
+  });
+
   it("encrypts with age recipients and removes the plaintext", async () => {
     const recipient = `age1${"q".repeat(58)}`;
     const runner = new ScriptedRunner()

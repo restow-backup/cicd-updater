@@ -42,6 +42,12 @@ inputs:
   token:
     description: Token for reading earlier releases (sent only to the feed origin).
     default: ${{ github.token }}
+  feed-allow-private-host:
+    description: Feed host allowed on a private network for upgrade-from (an internal Forgejo); empty - public addresses only.
+    default: ""
+  env:
+    description: Throwaway values for the smoke, one KEY=VALUE per line (for example a scratch database password); they override .env.example.
+    default: ""
   updater-config:
     description: updater.yaml of the project; when set, the upgrade runs through the sidecar (trust mode none, file feed).
     default: ""
@@ -113,6 +119,8 @@ runs:
         UPGRADE_FROM: ${{ inputs.upgrade-from }}
         FEED_TYPE: ${{ inputs.feed-type }}
         FEED_URL: ${{ inputs.feed-url }}
+        FEED_ALLOW_PRIVATE_HOST: ${{ inputs.feed-allow-private-host }}
+        SMOKE_ENV: ${{ inputs.env }}
         RELEASE_TOKEN: ${{ inputs.token }}
         UPDATER_CONFIG: ${{ inputs.updater-config }}
         UPDATER_IMAGE: ${{ inputs.updater-image }}
@@ -139,6 +147,10 @@ runs:
         if [ -n "$EXPECT_VERSION" ]; then args+=(--expect-version "$EXPECT_VERSION"); fi
         if [ -n "$FEED_TYPE" ]; then args+=(--feed-type "$FEED_TYPE"); fi
         if [ -n "$FEED_URL" ]; then args+=(--feed-url "$FEED_URL"); fi
+        if [ -n "$FEED_ALLOW_PRIVATE_HOST" ]; then args+=(--feed-allow-private-host "$FEED_ALLOW_PRIVATE_HOST"); fi
+        while IFS= read -r assignment; do
+          if [ -n "$assignment" ]; then args+=(--env "$assignment"); fi
+        done <<< "$SMOKE_ENV"
         if [ -n "$UPDATER_CONFIG" ]; then
           if [ -z "$UPDATER_IMAGE" ]; then
             echo "::error::updater-image is required with updater-config"

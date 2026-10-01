@@ -30,8 +30,9 @@ permissions:
   contents: read
 
 env:
-  # ADJUST: one repository per image key of release.json (lowercase).
-  APP_IMAGE: ghcr.io/acme/notes
+  # ADJUST: one repository per image key of release.json (lowercase). Do not name these
+  # like the image variables of your Compose file (APP_IMAGE): those carry digests.
+  APP_REPOSITORY: ghcr.io/acme/notes
 
 jobs:
   build:
@@ -59,7 +60,7 @@ jobs:
         id: app
         uses: restow-backup/cicd-updater/actions/build@v1.0.0
         with:
-          image: ${{ env.APP_IMAGE }}
+          image: ${{ env.APP_REPOSITORY }}
           platforms: ${{ matrix.platform }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
@@ -69,11 +70,14 @@ jobs:
         uses: restow-backup/cicd-updater/actions/smoke@v1.0.0
         with:
           compose-files: docker-compose.yml,docker-compose.smoke.yml # ADJUST
-          images: '{"app": {"repository": "${{ env.APP_IMAGE }}", "digest": "${{ steps.app.outputs.digest }}"}}'
+          images: '{"app": {"repository": "${{ env.APP_REPOSITORY }}", "digest": "${{ steps.app.outputs.digest }}"}}'
           image-vars: '{"app": "APP_IMAGE"}' # ADJUST: the env key the Compose file reads
           health-url: http://127.0.0.1:3000/healthz # ADJUST: published by the smoke override
           health-version-path: $.version
           upgrade-from: previous
+          # Throwaway values for variables your Compose file requires (${VAR:?}).
+          # env: |
+          #   POSTGRES_PASSWORD=smoke-${{ github.run_id }}
 
       - name: Keep the digest
         env:
@@ -115,7 +119,7 @@ jobs:
         id: digests
         run: |
           printf 'images={"app": {"repository": "%s", "digests": ["%s", "%s"]}}\n' \
-            "$APP_IMAGE" "$(cat digests/app-amd64)" "$(cat digests/app-arm64)" >> "$GITHUB_OUTPUT"
+            "$APP_REPOSITORY" "$(cat digests/app-amd64)" "$(cat digests/app-arm64)" >> "$GITHUB_OUTPUT"
 
       - name: Tag, sign and attach SBOMs
         id: publish

@@ -18,8 +18,9 @@ permissions:
   contents: read
 
 env:
-  APP_IMAGE: ghcr.io/acme/notes
-  WEB_IMAGE: ghcr.io/acme/notes-web
+  # The repositories; APP_IMAGE and WEB_IMAGE are the Compose variables with digests.
+  APP_REPOSITORY: ghcr.io/acme/notes
+  WEB_REPOSITORY: ghcr.io/acme/notes-web
   # The sidecar the smoke test upgrades through; pin it by digest.
   CICD_UPDATER_IMAGE: ghcr.io/restow-backup/cicd-updater:1.0.0
 
@@ -49,7 +50,7 @@ jobs:
         id: app
         uses: restow-backup/cicd-updater/actions/build@v1.0.0
         with:
-          image: ${{ env.APP_IMAGE }}
+          image: ${{ env.APP_REPOSITORY }}
           file: app/Dockerfile
           platforms: ${{ matrix.platform }}
           password: ${{ secrets.GITHUB_TOKEN }}
@@ -58,7 +59,7 @@ jobs:
         id: web
         uses: restow-backup/cicd-updater/actions/build@v1.0.0
         with:
-          image: ${{ env.WEB_IMAGE }}
+          image: ${{ env.WEB_REPOSITORY }}
           file: web/Dockerfile
           platforms: ${{ matrix.platform }}
           password: ${{ secrets.GITHUB_TOKEN }}
@@ -68,13 +69,18 @@ jobs:
         with:
           compose-files: docker-compose.yml,docker-compose.smoke.yml
           images: >-
-            {"app": {"repository": "${{ env.APP_IMAGE }}", "digest": "${{ steps.app.outputs.digest }}"},
-             "web": {"repository": "${{ env.WEB_IMAGE }}", "digest": "${{ steps.web.outputs.digest }}"}}
+            {"app": {"repository": "${{ env.APP_REPOSITORY }}", "digest": "${{ steps.app.outputs.digest }}"},
+             "web": {"repository": "${{ env.WEB_REPOSITORY }}", "digest": "${{ steps.web.outputs.digest }}"}}
           image-vars: '{"app": "APP_IMAGE", "web": "WEB_IMAGE"}'
           health-url: http://127.0.0.1:3000/healthz
           upgrade-from: previous
           updater-config: updater.yaml
           updater-image: ${{ env.CICD_UPDATER_IMAGE }}
+          # Throwaway values for the variables the Compose file requires.
+          env: |
+            POSTGRES_PASSWORD=smoke-${{ github.run_id }}-${{ github.run_attempt }}
+            ADMIN_TOKEN=smoke-admin-token-${{ github.run_id }}
+            PROJECT_DIR=${{ github.workspace }}
 
       - name: Keep the digests
         env:
@@ -118,8 +124,8 @@ jobs:
         id: digests
         run: |
           printf 'images={"app": {"repository": "%s", "digests": ["%s", "%s"]}, "web": {"repository": "%s", "digests": ["%s", "%s"]}}\n' \
-            "$APP_IMAGE" "$(cat digests/app-amd64)" "$(cat digests/app-arm64)" \
-            "$WEB_IMAGE" "$(cat digests/web-amd64)" "$(cat digests/web-arm64)" >> "$GITHUB_OUTPUT"
+            "$APP_REPOSITORY" "$(cat digests/app-amd64)" "$(cat digests/app-arm64)" \
+            "$WEB_REPOSITORY" "$(cat digests/web-amd64)" "$(cat digests/web-arm64)" >> "$GITHUB_OUTPUT"
 
       - name: Tag, sign and attach SBOMs
         id: publish

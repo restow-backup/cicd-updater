@@ -13,7 +13,13 @@ export interface ExecResult {
 
 export type Exec = (
   argv: readonly [string, ...string[]],
-  options?: { env?: Readonly<Record<string, string>>; cwd?: string; timeoutMs?: number },
+  options?: {
+    env?: Readonly<Record<string, string>>;
+    /** Variables of the runner's environment the child must not see. */
+    unsetEnv?: readonly string[];
+    cwd?: string;
+    timeoutMs?: number;
+  },
 ) => Promise<ExecResult>;
 
 const CAP = 4 * 1024 * 1024;
@@ -21,9 +27,13 @@ const CAP = 4 * 1024 * 1024;
 export const exec: Exec = (argv, options = {}) =>
   new Promise((resolve) => {
     const [program, ...args] = argv;
+    const env: NodeJS.ProcessEnv = { ...process.env, ...(options.env ?? {}) };
+    for (const key of options.unsetEnv ?? []) {
+      delete env[key];
+    }
     const child = spawn(program, args, {
       cwd: options.cwd,
-      env: { ...process.env, ...(options.env ?? {}) },
+      env,
       stdio: ["ignore", "pipe", "pipe"],
       shell: false,
     });

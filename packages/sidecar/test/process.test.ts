@@ -5,6 +5,7 @@ import { Redactor } from "@cicd-updater/engine";
 import { memoryLogger } from "@cicd-updater/engine/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  clearVerifyDir,
   consoleLogger,
   isAuthorized,
   loadBranding,
@@ -217,7 +218,13 @@ describe("maintenance page", () => {
     expect(html).toContain('lang="de"');
     expect(html).toContain('"Wartung"');
     expect(html).not.toContain('"Maintenance in progress"');
-    expect(html).toContain('<script src="maintenance.js"></script>');
+    // Absolute URLs: the edge serves the page in place of any address of the app.
+    expect(html).toContain('<script src="/public/v1/maintenance/maintenance.js"></script>');
+    expect(html).toContain('href="/public/v1/maintenance/maintenance.css"');
+    expect(html).toContain('data-status-url="/public/v1/status"');
+    expect(renderIndexHtml(branding, ["de"], { assetBase: "" })).toContain(
+      '<script src="maintenance.js"></script>',
+    );
     expect(MAINTENANCE_CSP).toContain("script-src 'self'");
   });
 
@@ -257,6 +264,16 @@ describe("process helpers", () => {
     expect(projectNameOf(config, { projectName: "notes" } as never)).toBe("notes");
     expect(splitListen("0.0.0.0:8090")).toEqual(["0.0.0.0", "8090"]);
     expect(splitListen("[::]:8090")).toEqual(["::", "8090"]);
+  });
+
+  it("clears only its own leftover verification directories at start", async () => {
+    const verify = path.join(dir, "verify");
+    await fs.mkdir(path.join(verify, "v-1793000000000-0a1b2c3d"), { recursive: true });
+    await fs.writeFile(path.join(verify, "v-1793000000000-0a1b2c3d", "release.json"), "{}");
+    await fs.mkdir(path.join(verify, "operator-notes"));
+    expect(await clearVerifyDir(verify)).toBe(1);
+    expect(await fs.readdir(verify)).toEqual(["operator-notes"]);
+    expect(await clearVerifyDir(path.join(dir, "missing"))).toBe(0);
   });
 
   it("logs redacted text or JSON lines above the level", () => {

@@ -55,6 +55,21 @@ export function projectNameOf(config: UpdaterConfig, self: SelfInfo | null): str
   return config.compose.projectName ?? self?.projectName ?? (fromDir || "project");
 }
 
+/**
+ * Remove what verifications interrupted by a restart left in the verifier's work
+ * directory (design 5.8). Only the sidecar's own `v-<time>-<random>` directories.
+ */
+export async function clearVerifyDir(dir: string): Promise<number> {
+  let removed = 0;
+  for (const entry of await fs.readdir(dir).catch(() => [] as string[])) {
+    if (/^v-\d+-[0-9a-f]{8}$/.test(entry)) {
+      await fs.rm(path.join(dir, entry), { recursive: true, force: true });
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
 /** Point the Docker CLI at the operator's registry credentials without copying them. */
 export async function registryConfigDir(config: UpdaterConfig): Promise<string | null> {
   const file = config.docker.registryAuthFile;
@@ -138,6 +153,7 @@ export async function serve(
   redactor.add(token);
 
   const store = await StatusStore.open(config.state.dir, logger, () => new Date(), config.state);
+  await clearVerifyDir(config.trust.verifier.workDir);
   let dockerConfig: string | null = null;
   try {
     dockerConfig = await registryConfigDir(config);

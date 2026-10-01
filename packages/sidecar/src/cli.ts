@@ -1,5 +1,6 @@
 import { createReadStream } from "node:fs";
 import * as fs from "node:fs/promises";
+import * as os from "node:os";
 import * as path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { pipeline } from "node:stream/promises";
@@ -220,6 +221,7 @@ export async function runCli(
         out: { type: "string" },
         "status-url": { type: "string" },
         "home-url": { type: "string" },
+        "asset-base": { type: "string" },
       },
     });
   } catch (error) {
@@ -234,9 +236,13 @@ export async function runCli(
 
   if (command === "version") {
     const runner = new LocalRunner({ redactor: new Redactor(), cwd: "/" });
-    const tool = async (argv: [string, ...string[]]): Promise<string> => {
+    const tool = async (argv: [string, ...string[]], whole = false): Promise<string> => {
       const result = await runner.run({ argv: argv as never, timeoutMs: 10_000 }).catch(() => null);
-      return result?.exitCode === 0 ? (result.stdout.trim().split("\n")[0] ?? "") : "not available";
+      if (result?.exitCode !== 0) {
+        return "not available";
+      }
+      const text = result.stdout.trim();
+      return whole ? text : (text.split("\n")[0] ?? "");
     };
     const versions = {
       cicdUpdater: SIDECAR_VERSION,
@@ -245,7 +251,15 @@ export async function runCli(
       docker: await tool(["docker", "version", "--format", "{{.Client.Version}}"]),
       compose: await tool(["docker", "compose", "version", "--short"]),
       buildx: await tool(["docker", "buildx", "version"]),
-      cosign: await tool(["cosign", "version", "--json"]),
+      cosign: await (async () => {
+        const text = await tool(["cosign", "version", "--json"], true);
+        try {
+          const parsedVersion = (JSON.parse(text) as { gitVersion?: unknown }).gitVersion;
+          return typeof parsedVersion === "string" ? parsedVersion : text;
+        } catch {
+          return text;
+        }
+      })(),
       age: await tool(["age", "--version"]),
     };
     if (json) {
@@ -320,10 +334,19 @@ export async function runCli(
 
   if (command === "doctor") {
     const redactor = new Redactor(config.logging.redactPatterns);
+    // The registry check reads manifests with the operator's credentials, as pulls do.
+    let dockerConfig: string | null = null;
+    if (config.docker.registryAuthFile) {
+      dockerConfig = await fs.mkdtemp(path.join(os.tmpdir(), "cicd-updater-doctor-"));
+      await fs.symlink(config.docker.registryAuthFile, path.join(dockerConfig, "config.json"));
+    }
     const runner = new LocalRunner({
       redactor,
       cwd: config.compose.projectDir,
-      fixedEnv: { DOCKER_HOST: `unix://${config.docker.socket}` },
+      fixedEnv: {
+        DOCKER_HOST: `unix://${config.docker.socket}`,
+        ...(dockerConfig ? { DOCKER_CONFIG: dockerConfig } : {}),
+      },
     });
     const timeouts = {
       pullSeconds: 60,
@@ -354,7 +377,9 @@ export async function runCli(
       },
       timeouts,
     });
-    const report = await runDoctor({ loaded, docker, self, redactor, fetch: deps.fetch });
+    const report = await runDoctor({ loaded, docker, self, redactor, fetch: deps.fetch }).finally(
+      () => (dockerConfig ? fs.rm(dockerConfig, { recursive: true, force: true }) : undefined),
+    );
     if (json) {
       print(report);
     } else {
@@ -398,7 +423,7 @@ export async function runCli(
   if (command === "maintenance-page") {
     if (positionals[0] !== "export" || typeof flags.out !== "string") {
       io.err(
-        "Usage: cicd-updater maintenance-page export --out <dir> [--status-url URL] [--home-url URL]",
+        "Usage: cicd-updater maintenance-page export --out <dir> [--status-url URL] [--home-url URL] [--asset-base URL]",
       );
       return EXIT.usage;
     }
@@ -406,6 +431,8 @@ export async function runCli(
       statusUrl:
         typeof flags["status-url"] === "string" ? flags["status-url"] : "/public/v1/status",
       homeUrl: typeof flags["home-url"] === "string" ? flags["home-url"] : "/",
+      // Exported files are served by the edge itself, by default next to each other.
+      assetBase: typeof flags["asset-base"] === "string" ? flags["asset-base"] : "",
     });
     await fs.mkdir(flags.out, { recursive: true });
     for (const [name, file] of Object.entries(files)) {

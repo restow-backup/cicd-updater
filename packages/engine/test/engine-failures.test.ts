@@ -545,7 +545,7 @@ describe("after new images were applied: the rollback rule", () => {
     expect(result.recovery?.commands).toEqual([
       "docker compose -p notes stop api worker",
       `docker compose -p notes exec -T updater cicd-updater backups cat ${backups[0]?.file} | docker compose -p notes exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "\${POSTGRES_DB:-$POSTGRES_USER}" --clean --if-exists'`,
-      `docker compose -p notes exec -T updater cicd-updater recover restore-env ${result.id}`,
+      `docker compose -p notes exec updater cicd-updater recover restore-env ${result.id}`,
       "docker compose -p notes up -d",
     ]);
     expect(h.engine.view().events.at(-1)?.details).toMatchObject({

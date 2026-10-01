@@ -9,8 +9,9 @@
 # Pin the sidecar image by digest: verify it first (docs/upgrading-the-updater.md).
 
 variables:
-  # ADJUST: the image of the app, lowercase.
-  APP_IMAGE: $CI_REGISTRY_IMAGE/app
+  # ADJUST: the repository of the app image, lowercase. Not named like the Compose image
+  # variable (APP_IMAGE), which carries the digest.
+  APP_REPOSITORY: $CI_REGISTRY_IMAGE/app
   CICD_UPDATER_IMAGE: ghcr.io/restow-backup/cicd-updater:1.0.0 # ADJUST: append @sha256:<digest>
   DOCKER_HOST: tcp://docker:2376
   DOCKER_TLS_CERTDIR: /certs
@@ -40,7 +41,7 @@ build:
     - VERSION="${CI_COMMIT_TAG#v}"
     - >-
       cicd-updater release build
-      --images "{\"app\": {\"repository\": \"$APP_IMAGE\"}}"
+      --images "{\"app\": {\"repository\": \"$APP_REPOSITORY\"}}"
       --version "$VERSION"
       --platforms linux/amd64,linux/arm64
       --github-output build.env
@@ -55,7 +56,8 @@ smoke:
   needs: [build]
   script:
     # ADJUST: Compose files, image variables and the health URL. The app runs in the
-    # dind service, so the health URL uses the host name "docker".
+    # dind service, so the health URL uses the host name "docker", and the smoke override
+    # must publish the port on all interfaces ("3000:3000", not "127.0.0.1:3000:3000").
     - >-
       cicd-updater release smoke
       --compose-files docker-compose.yml,docker-compose.smoke.yml
@@ -64,6 +66,7 @@ smoke:
       --health-url http://docker:3000/healthz
       --expect-version "${CI_COMMIT_TAG#v}"
       --upgrade-from previous --feed-type gitlab --feed-url "$CI_PROJECT_URL"
+      --env "POSTGRES_PASSWORD=smoke-$CI_PIPELINE_ID"
       --report smoke-report.md
   artifacts:
     when: always

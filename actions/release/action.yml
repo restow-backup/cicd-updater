@@ -51,6 +51,15 @@ inputs:
   upgrade-from:
     description: Smoke - previous, none, or a version.
     default: none
+  feed-type:
+    description: Smoke - feed of earlier releases for upgrade-from (github, gitea, gitlab, static); empty means this GitHub repository.
+    default: ""
+  feed-url:
+    description: Smoke - feed URL for upgrade-from; empty means this GitHub repository.
+    default: ""
+  smoke-env:
+    description: Smoke - throwaway values, one KEY=VALUE per line (for example a scratch database password).
+    default: ""
   updater-config:
     description: Smoke - updater.yaml for the upgrade through the sidecar.
     default: ""
@@ -224,6 +233,9 @@ runs:
         HEALTH_VERSION_PATH: ${{ inputs.health-version-path }}
         VERSION: ${{ steps.prep.outputs.version }}
         UPGRADE_FROM: ${{ inputs.upgrade-from }}
+        FEED_TYPE: ${{ inputs.feed-type }}
+        FEED_URL: ${{ inputs.feed-url }}
+        SMOKE_ENV: ${{ inputs.smoke-env }}
         UPDATER_CONFIG: ${{ inputs.updater-config }}
         UPDATER_IMAGE: ${{ inputs.updater-image }}
         TIMEOUT_SECONDS: ${{ inputs.timeout-seconds }}
@@ -237,6 +249,11 @@ runs:
           --report "$DIR/smoke-report.md" --github-output /dev/null)
         if [ -n "$HEALTH_VERSION_PATH" ]; then args+=(--health-version-path "$HEALTH_VERSION_PATH"); fi
         if [ -n "$UPDATER_CONFIG" ]; then args+=(--updater-config "$UPDATER_CONFIG" --updater-image "$UPDATER_IMAGE"); fi
+        if [ -n "$FEED_TYPE" ]; then args+=(--feed-type "$FEED_TYPE"); fi
+        if [ -n "$FEED_URL" ]; then args+=(--feed-url "$FEED_URL"); fi
+        while IFS= read -r assignment; do
+          if [ -n "$assignment" ]; then args+=(--env "$assignment"); fi
+        done <<< "$SMOKE_ENV"
         status=0
         node "$RELEASE_TOOLS" "${args[@]}" || status=$?
         if [ -f "$DIR/smoke-report.md" ]; then cat "$DIR/smoke-report.md" >> "$GITHUB_STEP_SUMMARY"; fi

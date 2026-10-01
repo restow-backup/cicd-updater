@@ -25,7 +25,8 @@ trust:
 services:
   - { name: api, image: app, imageVar: APP_IMAGE, startOrder: 1 }
   - { name: worker, image: app, imageVar: APP_IMAGE, startOrder: 2 }
-  - { name: web, image: web, imageVar: WEB_IMAGE, startOrder: 3, stopBeforeUpdate: false }
+  # The edge keeps serving the maintenance page, also when a run needs attention.
+  - { name: web, image: web, imageVar: WEB_IMAGE, startOrder: 3, stopBeforeUpdate: false, stopOnAttention: false }
 
 hooks:
   backup:

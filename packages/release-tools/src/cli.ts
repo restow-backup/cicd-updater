@@ -2,7 +2,7 @@ import { appendFileSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { parseArgs } from "node:util";
-import { FeedReader, type RemoteFeedType } from "@cicd-updater/feed";
+import { FeedError, FeedReader, type RemoteFeedType } from "@cicd-updater/feed";
 import {
   channelOf,
   compareVersions,
@@ -75,7 +75,8 @@ export const RELEASE_USAGE = `Usage: cicd-updater release <command> [flags]
               [--name N] [--notes-file F] [--prerelease] [--draft]   (token: RELEASE_TOKEN or GITHUB_TOKEN)
   smoke       --compose-files a.yml --images <json> --image-vars <json> --health-url U
               [--env-example .env.example] [--health-version-path P] [--expect-version V]
-              [--upgrade-from previous|none|V --feed-type T --feed-url U] [--updater-config F --updater-image I]
+              [--upgrade-from previous|none|V --feed-type T --feed-url U [--feed-allow-private-host H]]
+              [--updater-config F --updater-image I] [--env KEY=VALUE ...]
               [--timeout-seconds 600] [--report report.md]
   check-tag   --tag vX.Y.Z [--changelog CHANGELOG.md] [--package package.json ...]
   build       --images <json|@file> --version V [--platforms linux/amd64,linux/arm64] [--no-push]
@@ -101,8 +102,11 @@ function list(value: string | undefined): string[] {
 }
 
 function trustMode(value: string | undefined, env: ReleaseCliDeps["env"]): TrustMode {
-  const mode =
-    value ?? (env.GITHUB_ACTIONS === "true" || env.GITLAB_CI === "true" ? "keyless" : undefined);
+  // Keyless is the default only where the CI has an OIDC identity public Sigstore
+  // accepts: GitHub Actions on github.com and GitLab CI. Forgejo/Gitea runners also
+  // set GITHUB_ACTIONS, so the server URL decides.
+  const githubCom = env.GITHUB_ACTIONS === "true" && env.GITHUB_SERVER_URL === "https://github.com";
+  const mode = value ?? (githubCom || env.GITLAB_CI === "true" ? "keyless" : undefined);
   if (mode !== "keyless" && mode !== "key" && mode !== "none") {
     throw new UsageError(
       "--signing must be keyless, key or none (there is no default outside GitHub Actions and GitLab CI)",
@@ -192,6 +196,8 @@ export async function runReleaseCli(
         "tag-pattern": { type: "string" },
         "extra-tags": { type: "string" },
         platforms: { type: "string" },
+        env: { type: "string", multiple: true },
+        "feed-allow-private-host": { type: "string", multiple: true },
         "out-dir": { type: "string" },
         "no-push": { type: "boolean", default: false },
         "cache-from": { type: "string" },
@@ -419,6 +425,7 @@ export async function runReleaseCli(
             expectVersion,
             str("feed-type"),
             str("feed-url"),
+            (flags["feed-allow-private-host"] as string[] | undefined) ?? [],
             deps,
           );
           if (!upgradeFrom) {
@@ -436,6 +443,7 @@ export async function runReleaseCli(
             expectVersion,
             upgradeFrom,
             timeoutSeconds: Number(str("timeout-seconds") ?? "600"),
+            extraEnv: envAssignments((flags.env as string[] | undefined) ?? []),
             cwd: process.cwd(),
             updater: str("updater-config")
               ? { configFile: need("updater-config"), image: need("updater-image") }
@@ -513,7 +521,7 @@ export async function runReleaseCli(
           created:
             created.exitCode === 0 && created.stdout.trim()
               ? created.stdout.trim()
-              : deps.now().toISOString(),
+              : (deps.env.CI_COMMIT_TIMESTAMP ?? deps.now().toISOString()),
           push: flags["no-push"] !== true,
           cacheFrom: list(str("cache-from")),
           cacheTo: list(str("cache-to")),
@@ -562,11 +570,25 @@ export async function runReleaseCli(
 }
 
 /** The images of the release to upgrade from: `previous` (newest earlier release) or a version. */
+/** `--env KEY=VALUE` (repeatable): throwaway values for the smoke, such as a scratch password. */
+function envAssignments(values: readonly string[]): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const value of values) {
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s.exec(value);
+    if (!match?.[1] || /[\r\n]/.test(match[2] ?? "")) {
+      throw new UsageError(`--env ${value.split("=")[0]}: expected KEY=VALUE on one line`);
+    }
+    result[match[1]] = match[2] ?? "";
+  }
+  return result;
+}
+
 async function previousRelease(
   from: string,
   current: string | null,
   feedType: string | undefined,
   feedUrl: string | undefined,
+  allowPrivateHosts: readonly string[],
   deps: ReleaseCliDeps,
 ): Promise<{ version: string; images: Record<string, SmokeImage> } | null> {
   const type = (feedType ?? (deps.env.GITHUB_REPOSITORY ? "github" : undefined)) as
@@ -583,8 +605,18 @@ async function previousRelease(
   const reader = new FeedReader({
     source: { type, url },
     token: deps.env.RELEASE_TOKEN ?? deps.env.GITHUB_TOKEN ?? null,
+    allowPrivateHosts: allowPrivateHosts.map((host) => host.toLowerCase()),
   });
-  const entries = await reader.list();
+  let entries: Awaited<ReturnType<FeedReader["list"]>>;
+  try {
+    entries = await reader.list();
+  } catch (error) {
+    // A project's first release: there is nothing to upgrade from yet.
+    if (error instanceof FeedError && error.code === "no_release") {
+      return null;
+    }
+    throw error;
+  }
   const candidates = entries.filter(
     (entry) =>
       entry.releaseJson &&

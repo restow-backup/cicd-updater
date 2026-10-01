@@ -5,7 +5,13 @@ import { Redactor, VerifyError } from "@cicd-updater/engine";
 import { baseConfig, memoryLogger } from "@cicd-updater/engine/testing";
 import { type UpdaterConfigInput, validateConfig } from "@cicd-updater/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CliDocker, CosignVerifier, classifyCosignFailure, registryOf } from "../src/index.js";
+import {
+  authEntryFor,
+  CliDocker,
+  CosignVerifier,
+  classifyCosignFailure,
+  registryOf,
+} from "../src/index.js";
 import { rejection, ScriptedRunner } from "./helpers.js";
 
 let dir: string;
@@ -313,6 +319,12 @@ describe("none mode and registry credentials", () => {
   it("reads the registry host of a reference", () => {
     expect(registryOf("ghcr.io/acme/notes@sha256:a")).toBe("ghcr.io");
     expect(registryOf("registry.example.com:5000/a/b@sha256:a")).toBe("registry.example.com:5000");
+    expect(authEntryFor({ "https://ghcr.io": { auth: "x" } }, "ghcr.io")).toEqual({ auth: "x" });
+    expect(authEntryFor({ "https://index.docker.io/v1/": { auth: "h" } }, "docker.io")).toEqual({
+      auth: "h",
+    });
+    expect(authEntryFor({ "ghcr.io.evil.example": { auth: "e" } }, "ghcr.io")).toBeUndefined();
+    expect(authEntryFor(undefined, "ghcr.io")).toBeUndefined();
     expect(registryOf("library/postgres@sha256:a")).toBe("docker.io");
     expect(registryOf("localhost/a@sha256:a")).toBe("localhost");
   });

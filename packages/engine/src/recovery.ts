@@ -69,7 +69,10 @@ export function renderRecoveryCommands(context: RecoveryContext): string[] {
         );
     }
   }
-  commands.push(`${sidecar} recover restore-env ${shellWord(context.runId)}`);
+  // Interactive on purpose (no -T): restore-env shows the lines and asks before writing.
+  commands.push(
+    `${compose} exec ${shellWord(context.selfService)} cicd-updater recover restore-env ${shellWord(context.runId)}`,
+  );
   commands.push(`${compose} up -d`);
   return commands;
 }

@@ -27473,15 +27473,16 @@ external_exports.object({
 }).meta({ title: "cicd-updater status.json (internal)" });
 
 // ../protocol/src/api.ts
+var requestedBySchema = external_exports.strictObject({
+  id: external_exports.string().max(200).nullable().optional(),
+  label: external_exports.string().min(1).max(200)
+}).meta({ id: "RequestedBy" });
 external_exports.strictObject({
   version: external_exports.string().max(64).regex(PLAIN_VERSION_PATTERN),
   mode: external_exports.enum(UPDATE_MODES).default("image"),
   leadSeconds: external_exports.number().int().min(0).optional(),
   startsAt: isoTime.optional(),
-  requestedBy: external_exports.strictObject({
-    id: external_exports.string().max(200).nullable().optional(),
-    label: external_exports.string().min(1).max(200)
-  }),
+  requestedBy: requestedBySchema,
   expect: external_exports.strictObject({ releaseSha256: sha256Hex.optional() }).optional()
 }).refine((request) => request.leadSeconds === void 0 || request.startsAt === void 0, {
   message: "leadSeconds and startsAt are exclusive",
@@ -27489,10 +27490,12 @@ external_exports.strictObject({
 }).meta({ id: "ScheduleRequest" });
 external_exports.strictObject({
   leadSeconds: external_exports.number().int().min(0).optional(),
-  startsAt: isoTime.optional()
+  startsAt: isoTime.optional(),
+  requestedBy: requestedBySchema.optional()
 }).refine((request) => request.leadSeconds === void 0 !== (request.startsAt === void 0), {
   message: "exactly one of leadSeconds and startsAt"
 }).meta({ id: "RescheduleRequest" });
+external_exports.strictObject({ requestedBy: requestedBySchema.optional() }).meta({ id: "RunActionRequest" });
 var blockerSchema = external_exports.object({
   code: external_exports.string().meta({ description: `One of: ${BLOCKER_CODES.join(", ")} (more may be added in 1.x).` }),
   detail: external_exports.string().max(500).nullable()
@@ -28110,7 +28113,9 @@ var backupSchema = external_exports.strictObject({
     image: external_exports.string().regex(DIGEST_PINNED_IMAGE_PATTERN).meta({ description: "Image pinned by digest." }),
     argv,
     envKeys: external_exports.array(external_exports.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/)).max(32).default([]).meta({ description: "Env keys whose values are passed to the backup container." }),
-    network: external_exports.enum(["project", "none"]).default("project").meta({ description: "project: the project's default network." }),
+    network: external_exports.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/).default("project").meta({
+      description: "project: the project's default network; none; or the key of a network in the Compose file (where the database is)."
+    }),
     outputFile: external_exports.string().regex(FILE_NAME_PATTERN).default("backup.out").meta({ description: "File the container writes into /backup." })
   }).optional(),
   lockWaitSeconds: int2(1, 3600).default(120).meta({ description: "PostgreSQL --lock-wait-timeout." }),
@@ -29161,9 +29166,13 @@ var FeedReader = class {
 var CAP = 4 * 1024 * 1024;
 var exec = (argv2, options = {}) => new Promise((resolve2) => {
   const [program, ...args] = argv2;
+  const env = { ...process.env, ...options.env ?? {} };
+  for (const key of options.unsetEnv ?? []) {
+    delete env[key];
+  }
   const child = spawn(program, args, {
     cwd: options.cwd,
-    env: { ...process.env, ...options.env ?? {} },
+    env,
     stdio: ["ignore", "pipe", "pipe"],
     shell: false
   });
@@ -29864,7 +29873,18 @@ async function gitlab2(input2, http2) {
   });
   return { url: body._links?.self ?? null, uploaded };
 }
-async function publishRelease(input2) {
+function apiBaseOf(host, url2) {
+  const base = url2.replace(/\/+$/, "");
+  if (host === "gitea" && !/\/api\/v1$/.test(base)) {
+    return `${base}/api/v1`;
+  }
+  if (host === "gitlab" && !/\/api\/v4$/.test(base)) {
+    return `${base}/api/v4`;
+  }
+  return base;
+}
+async function publishRelease(rawInput) {
+  const input2 = { ...rawInput, apiUrl: apiBaseOf(rawInput.host, rawInput.apiUrl) };
   const fetcher = input2.fetch ?? fetch;
   const headers = input2.host === "github" ? {
     authorization: `Bearer ${input2.token}`,
@@ -29963,6 +29983,11 @@ function renderReport(result, title) {
 }
 async function runSmoke(options, deps) {
   const steps = [];
+  const envKeys = /* @__PURE__ */ new Set();
+  const exec2 = (argv2, execOptions = {}) => deps.exec(
+    argv2,
+    argv2[0] === "docker" && argv2[1] === "compose" ? { ...execOptions, unsetEnv: [...execOptions.unsetEnv ?? [], ...envKeys] } : execOptions
+  );
   const project = `cicd-updater-smoke-${randomBytes(3).toString("hex")}`;
   const work = await fs5.mkdtemp(path4.join(os.tmpdir(), "cicd-updater-smoke-"));
   const envFile = options.updater ? path4.join(path4.resolve(options.cwd), ".cicd-updater-smoke.env") : path4.join(work, "smoke.env");
@@ -29998,14 +30023,17 @@ async function runSmoke(options, deps) {
   };
   const example = await fs5.readFile(path4.resolve(options.cwd, options.envExample), "utf8");
   const writeEnv = async (images) => {
-    await fs5.writeFile(
-      envFile,
-      smokeEnvFile(example, {
-        ...imageEnv(images, options.imageVars),
-        ...options.extraEnv ?? {}
-      }),
-      { mode: 384 }
-    );
+    const text = smokeEnvFile(example, {
+      ...imageEnv(images, options.imageVars),
+      ...options.extraEnv ?? {}
+    });
+    for (const line of text.split("\n")) {
+      const key = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line)?.[1];
+      if (key) {
+        envKeys.add(key);
+      }
+    }
+    await fs5.writeFile(envFile, text, { mode: 384 });
   };
   const waitHealthy = async (version2) => {
     const deadline = deps.now() + options.timeoutSeconds * 1e3;
@@ -30029,7 +30057,7 @@ async function runSmoke(options, deps) {
       } catch (error62) {
         last = error62.message;
       }
-      const ps = await deps.exec(compose(["ps", "-a", "--format", "json"]), { cwd: options.cwd });
+      const ps = await exec2(compose(["ps", "-a", "--format", "json"]), { cwd: options.cwd });
       const exited = ps.stdout.split("\n").filter(Boolean).map((line) => {
         try {
           return JSON.parse(line);
@@ -30038,7 +30066,7 @@ async function runSmoke(options, deps) {
         }
       }).filter((entry) => entry.State === "exited" && entry.ExitCode !== 0);
       if (exited.length > 0) {
-        const logs = await deps.exec(compose(["logs", "--no-color", "--tail", "40"]), {
+        const logs = await exec2(compose(["logs", "--no-color", "--tail", "40"]), {
           cwd: options.cwd
         });
         throw new Error(
@@ -30067,7 +30095,7 @@ async function runSmoke(options, deps) {
     await writeEnv(start);
     await fs5.writeFile(override, "services: {}\n");
     await step("compose config", async () => {
-      const services = await deps.exec(compose(["config", "--services"]), { cwd: options.cwd });
+      const services = await exec2(compose(["config", "--services"]), { cwd: options.cwd });
       if (services.exitCode !== 0) {
         throw new Error(services.stderr.slice(-1500));
       }
@@ -30076,7 +30104,7 @@ async function runSmoke(options, deps) {
       return `${names.length} services, restart policies off`;
     });
     await step(options.upgradeFrom ? `start ${options.upgradeFrom.version}` : "start", async () => {
-      const result = await deps.exec(
+      const result = await exec2(
         compose([
           "up",
           "-d",
@@ -30107,7 +30135,7 @@ async function runSmoke(options, deps) {
         await fs5.writeFile(override, plan.override(await fs5.readFile(override, "utf8")));
         const service = updater.service ?? "updater";
         const profile = ["--profile", updater.profile ?? "updater"];
-        const run = (args, timeoutMs = 12e4) => deps.exec(compose([...profile, ...args]), { cwd: options.cwd, timeoutMs });
+        const run = (args, timeoutMs = 12e4) => exec2(compose([...profile, ...args]), { cwd: options.cwd, timeoutMs });
         const up = await run(["up", "-d", "--no-build", service]);
         if (up.exitCode !== 0) {
           throw new Error(`the sidecar did not start: ${up.stderr.slice(-1e3)}`);
@@ -30159,7 +30187,7 @@ async function runSmoke(options, deps) {
     } else if (options.upgradeFrom) {
       await writeEnv(options.images);
       await step("upgrade", async () => {
-        const result = await deps.exec(compose(["up", "-d", "--no-build", "--pull", "missing"]), {
+        const result = await exec2(compose(["up", "-d", "--no-build", "--pull", "missing"]), {
           cwd: options.cwd,
           timeoutMs: (options.timeoutSeconds + 60) * 1e3
         });
@@ -30176,7 +30204,9 @@ async function runSmoke(options, deps) {
     }
     ok = false;
   } finally {
-    const down = await deps.exec(compose(["down", "-v", "--remove-orphans", "--timeout", "10"]), { cwd: options.cwd }).catch(() => null);
+    const down = await exec2(compose(["down", "-v", "--remove-orphans", "--timeout", "10"]), {
+      cwd: options.cwd
+    }).catch(() => null);
     steps.push({
       name: "teardown",
       ok: down?.exitCode === 0,
@@ -30272,7 +30302,10 @@ async function sidecarUpgradePlan(input2) {
         image: updater.image,
         profiles: [updater.profile ?? "updater"],
         restart: "no",
-        environment: { CICD_UPDATER_CONFIG: "/smoke-config/updater.yaml" },
+        environment: {
+          CICD_UPDATER_CONFIG: "/smoke-config/updater.yaml",
+          CICD_UPDATER_COMPOSE__PROJECT_DIR: cwd
+        },
         volumes: [
           "/var/run/docker.sock:/var/run/docker.sock",
           `${cwd}:${cwd}`,
@@ -30288,7 +30321,7 @@ async function sidecarUpgradePlan(input2) {
         "smoke-updater-state": {},
         "smoke-updater-shared": {}
       };
-      return (0, import_yaml2.stringify)(base);
+      return (0, import_yaml2.stringify)(base).replace(/\n {4}environment:\n/, "\n    environment: !override\n").replace(/\n {4}volumes:\n/, "\n    volumes: !override\n");
     }
   };
 }
@@ -30311,7 +30344,8 @@ var RELEASE_USAGE = `Usage: cicd-updater release <command> [flags]
               [--name N] [--notes-file F] [--prerelease] [--draft]   (token: RELEASE_TOKEN or GITHUB_TOKEN)
   smoke       --compose-files a.yml --images <json> --image-vars <json> --health-url U
               [--env-example .env.example] [--health-version-path P] [--expect-version V]
-              [--upgrade-from previous|none|V --feed-type T --feed-url U] [--updater-config F --updater-image I]
+              [--upgrade-from previous|none|V --feed-type T --feed-url U [--feed-allow-private-host H]]
+              [--updater-config F --updater-image I] [--env KEY=VALUE ...]
               [--timeout-seconds 600] [--report report.md]
   check-tag   --tag vX.Y.Z [--changelog CHANGELOG.md] [--package package.json ...]
   build       --images <json|@file> --version V [--platforms linux/amd64,linux/arm64] [--no-push]
@@ -30331,7 +30365,8 @@ function list(value) {
   return (value ?? "").split(/[,\n]/).map((item) => item.trim()).filter(Boolean);
 }
 function trustMode(value, env) {
-  const mode = value ?? (env.GITHUB_ACTIONS === "true" || env.GITLAB_CI === "true" ? "keyless" : void 0);
+  const githubCom = env.GITHUB_ACTIONS === "true" && env.GITHUB_SERVER_URL === "https://github.com";
+  const mode = value ?? (githubCom || env.GITLAB_CI === "true" ? "keyless" : void 0);
   if (mode !== "keyless" && mode !== "key" && mode !== "none") {
     throw new UsageError(
       "--signing must be keyless, key or none (there is no default outside GitHub Actions and GitLab CI)"
@@ -30414,6 +30449,8 @@ async function runReleaseCli(argv2, deps) {
         "tag-pattern": { type: "string" },
         "extra-tags": { type: "string" },
         platforms: { type: "string" },
+        env: { type: "string", multiple: true },
+        "feed-allow-private-host": { type: "string", multiple: true },
         "out-dir": { type: "string" },
         "no-push": { type: "boolean", default: false },
         "cache-from": { type: "string" },
@@ -30626,6 +30663,7 @@ async function runReleaseCli(argv2, deps) {
             expectVersion,
             str("feed-type"),
             str("feed-url"),
+            flags["feed-allow-private-host"] ?? [],
             deps
           );
           if (!upgradeFrom) {
@@ -30643,6 +30681,7 @@ async function runReleaseCli(argv2, deps) {
             expectVersion,
             upgradeFrom,
             timeoutSeconds: Number(str("timeout-seconds") ?? "600"),
+            extraEnv: envAssignments(flags.env ?? []),
             cwd: process.cwd(),
             updater: str("updater-config") ? { configFile: need("updater-config"), image: need("updater-image") } : null
           },
@@ -30712,7 +30751,7 @@ async function runReleaseCli(argv2, deps) {
           version: version2,
           revision: deps.env.GITHUB_SHA ?? deps.env.CI_COMMIT_SHA ?? null,
           source: serverUrl && repository ? `${serverUrl}/${repository}` : deps.env.CI_PROJECT_URL ?? null,
-          created: created.exitCode === 0 && created.stdout.trim() ? created.stdout.trim() : deps.now().toISOString(),
+          created: created.exitCode === 0 && created.stdout.trim() ? created.stdout.trim() : deps.env.CI_COMMIT_TIMESTAMP ?? deps.now().toISOString(),
           push: flags["no-push"] !== true,
           cacheFrom: list(str("cache-from")),
           cacheTo: list(str("cache-to")),
@@ -30759,7 +30798,18 @@ async function runReleaseCli(argv2, deps) {
     return 1;
   }
 }
-async function previousRelease(from, current, feedType, feedUrl, deps) {
+function envAssignments(values) {
+  const result = {};
+  for (const value of values) {
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s.exec(value);
+    if (!match?.[1] || /[\r\n]/.test(match[2] ?? "")) {
+      throw new UsageError(`--env ${value.split("=")[0]}: expected KEY=VALUE on one line`);
+    }
+    result[match[1]] = match[2] ?? "";
+  }
+  return result;
+}
+async function previousRelease(from, current, feedType, feedUrl, allowPrivateHosts, deps) {
   const type = feedType ?? (deps.env.GITHUB_REPOSITORY ? "github" : void 0);
   const url2 = feedUrl ?? (deps.env.GITHUB_SERVER_URL && deps.env.GITHUB_REPOSITORY ? `${deps.env.GITHUB_SERVER_URL}/${deps.env.GITHUB_REPOSITORY}` : void 0);
   if (!type || !url2) {
@@ -30767,9 +30817,18 @@ async function previousRelease(from, current, feedType, feedUrl, deps) {
   }
   const reader = new FeedReader({
     source: { type, url: url2 },
-    token: deps.env.RELEASE_TOKEN ?? deps.env.GITHUB_TOKEN ?? null
+    token: deps.env.RELEASE_TOKEN ?? deps.env.GITHUB_TOKEN ?? null,
+    allowPrivateHosts: allowPrivateHosts.map((host) => host.toLowerCase())
   });
-  const entries2 = await reader.list();
+  let entries2;
+  try {
+    entries2 = await reader.list();
+  } catch (error62) {
+    if (error62 instanceof FeedError && error62.code === "no_release") {
+      return null;
+    }
+    throw error62;
+  }
   const candidates = entries2.filter(
     (entry2) => entry2.releaseJson && (from === "previous" ? !current || compareVersions(entry2.version, current) < 0 : entry2.version === from)
   );

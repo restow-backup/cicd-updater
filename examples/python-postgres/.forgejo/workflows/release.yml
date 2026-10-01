@@ -12,7 +12,8 @@ on:
     tags: ["v*"]
 
 env:
-  APP_IMAGE: git.example.com/acme/fastnotes
+  # The repository; APP_IMAGE is the Compose variable with the digest.
+  APP_REPOSITORY: git.example.com/acme/fastnotes
   REGISTRY: git.example.com
 
 jobs:
@@ -27,7 +28,7 @@ jobs:
         id: app
         uses: https://github.com/restow-backup/cicd-updater/actions/build@v1.0.0
         with:
-          image: ${{ env.APP_IMAGE }}
+          image: ${{ env.APP_REPOSITORY }}
           file: app/Dockerfile
           platforms: linux/amd64,linux/arm64
           registry: ${{ env.REGISTRY }}
@@ -39,19 +40,24 @@ jobs:
         uses: https://github.com/restow-backup/cicd-updater/actions/smoke@v1.0.0
         with:
           compose-files: docker-compose.yml,docker-compose.smoke.yml
-          images: '{"app": {"repository": "${{ env.APP_IMAGE }}", "digest": "${{ steps.app.outputs.digest }}"}}'
+          images: '{"app": {"repository": "${{ env.APP_REPOSITORY }}", "digest": "${{ steps.app.outputs.digest }}"}}'
           image-vars: '{"app": "APP_IMAGE"}'
           health-url: http://127.0.0.1:8000/health
           upgrade-from: previous
           feed-type: gitea
           feed-url: ${{ github.server_url }}/${{ github.repository }}
           token: ${{ secrets.RELEASE_TOKEN }}
+          # Throwaway values for the variables the Compose file requires.
+          env: |
+            POSTGRES_PASSWORD=smoke-${{ github.run_id }}
+            ADMIN_TOKEN=smoke-admin-token-${{ github.run_id }}
+            PROJECT_DIR=${{ github.workspace }}
 
       - name: Tag, sign and attach SBOMs
         id: publish
         uses: https://github.com/restow-backup/cicd-updater/actions/publish@v1.0.0
         with:
-          images: '{"app": {"repository": "${{ env.APP_IMAGE }}", "digests": ["${{ steps.app.outputs.digest }}"]}}'
+          images: '{"app": {"repository": "${{ env.APP_REPOSITORY }}", "digests": ["${{ steps.app.outputs.digest }}"]}}'
           signing: key
           cosign-key: ${{ secrets.COSIGN_KEY }}
           cosign-password: ${{ secrets.COSIGN_PASSWORD }}
