@@ -15,12 +15,13 @@
 #                                                your health endpoint as the sidecar sees it
 #                                                (sends the token: only your own app)
 #
-# Environment: UPDATER_URL (default http://updater:8090), UPDATER_TOKEN_FILE (default
+# Environment: UPDATER_URL (default http://updater:8090 when unset; set but empty means no
+# sidecar on this installation), UPDATER_TOKEN_FILE (default
 # /run/cicd-updater/token), ACTOR_ID and ACTOR_LABEL (recorded as requestedBy).
 # The token is passed to curl on standard input, never as an argument.
 set -eu
 
-URL="${UPDATER_URL:-http://updater:8090}"
+URL="${UPDATER_URL-http://updater:8090}"
 TOKEN_FILE="${UPDATER_TOKEN_FILE:-/run/cicd-updater/token}"
 ACTOR_ID="${ACTOR_ID:-operator}"
 ACTOR_LABEL="${ACTOR_LABEL:-updater-api.sh}"
@@ -29,6 +30,8 @@ fail() {
   echo "updater-api.sh: $*" >&2
   exit 2
 }
+
+[ -n "$URL" ] || fail "UPDATER_URL is empty: in-app updates are off on this installation"
 
 NL='
 '

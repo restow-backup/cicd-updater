@@ -48,7 +48,7 @@ services:
   api:
     image: ${APP_IMAGE:?set APP_IMAGE in .env}
     environment:
-      UPDATER_URL: ${UPDATER_URL:-http://updater:8090}
+      UPDATER_URL: ${UPDATER_URL-http://updater:8090} # set empty in .env (UPDATER_URL=): in-app updates off
       UPDATER_TOKEN_FILE: /run/cicd-updater/token
     volumes:
       - updater-shared:/run/cicd-updater:ro   # the shared token, read-only

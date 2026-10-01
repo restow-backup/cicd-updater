@@ -15,7 +15,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-fastnotes}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-fastnotes}
       ADMIN_TOKEN: ${ADMIN_TOKEN:?set ADMIN_TOKEN in .env}
-      UPDATER_URL: ${UPDATER_URL:-http://updater:8090}
+      UPDATER_URL: ${UPDATER_URL-http://updater:8090} # set empty in .env (UPDATER_URL=): in-app updates off
       UPDATER_TOKEN_FILE: /run/cicd-updater/token
     volumes:
       - updater-shared:/run/cicd-updater:ro
