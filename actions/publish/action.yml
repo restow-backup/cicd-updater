@@ -10,8 +10,11 @@ inputs:
     description: 'JSON {"<key>": {"repository": "...", "digests": ["sha256:...", ...]}}: the platform digests of the build.'
     required: true
   version:
-    description: Plain release version; the image tag.
-    required: true
+    description: Plain release version (the image tag); empty means derived from the pushed tag through tag-pattern.
+    default: ""
+  tag-pattern:
+    description: How a version maps to a Git tag; must match the sidecar's release.tagPattern.
+    default: v{version}
   extra-tags:
     description: Comma-separated moving tags (for example 1,latest); never checked for immutability.
     default: ""
@@ -76,14 +79,19 @@ runs:
       with:
         node-version: 22
 
-    - name: Signing mode
+    - name: Signing mode and version
       id: mode
       shell: bash
       env:
+        RELEASE_TOOLS: ${{ github.action_path }}/../lib/release-tools.mjs
         SIGNING: ${{ inputs.signing }}
         COSIGN_KEY: ${{ inputs.cosign-key }}
+        VERSION: ${{ inputs.version }}
+        TAG_PATTERN: ${{ inputs.tag-pattern }}
       run: |
         set -euo pipefail
+        if [ -n "$VERSION" ]; then tag="${TAG_PATTERN/\{version\}/$VERSION}"; else tag="$GITHUB_REF_NAME"; fi
+        node "$RELEASE_TOOLS" version --tag "$tag" --tag-pattern "$TAG_PATTERN" --github-output "$GITHUB_OUTPUT" > /dev/null
         mode="$SIGNING"
         if [ -z "$mode" ]; then
           if [ "${GITHUB_SERVER_URL:-}" = "https://github.com" ]; then
@@ -125,7 +133,7 @@ runs:
       env:
         RELEASE_TOOLS: ${{ github.action_path }}/../lib/release-tools.mjs
         IMAGES: ${{ inputs.images }}
-        VERSION: ${{ inputs.version }}
+        VERSION: ${{ steps.mode.outputs.version }}
         EXTRA_TAGS: ${{ inputs.extra-tags }}
         REFUSE_EXISTING: ${{ inputs.refuse-existing }}
       run: |

@@ -1,0 +1,81 @@
+# Release workflow for an app updated by cicd-updater (Forgejo or Gitea Actions,
+# signing with a cosign key pair, images in the Forgejo container registry).
+#
+# Copy to .forgejo/workflows/release.yml and adjust the lines marked "ADJUST".
+#
+# Secrets (repository settings, Actions, Secrets):
+#   REGISTRY_TOKEN   access token of a user with write:package (pushes the images)
+#   RELEASE_TOKEN    access token with write:repository (creates the release)
+#   COSIGN_KEY       the private key from `cosign generate-key-pair` (PEM text)
+#   COSIGN_PASSWORD  its password
+# The public key cosign.pub goes to the host and into updater.yaml
+# (trust.mode: key, trust.key.publicKeyFiles).
+#
+# One job builds both architectures with QEMU (most Forgejo runners have one
+# architecture), smoke-tests the result, then tags, signs and publishes. Nothing is
+# tagged or published when the build or the smoke test fails.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  # ADJUST: <forgejo host>/<owner>/<image>, lowercase.
+  APP_IMAGE: git.example.com/acme/notes
+  REGISTRY: git.example.com
+
+jobs:
+  release:
+    runs-on: docker # ADJUST: a runner label with Docker available
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: https://github.com/actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the app image (amd64 and arm64)
+        id: app
+        uses: https://github.com/restow-backup/cicd-updater/actions/build@v1.0.0
+        with:
+          image: ${{ env.APP_IMAGE }}
+          platforms: linux/amd64,linux/arm64
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+          cache: none
+
+      - name: Smoke test
+        uses: https://github.com/restow-backup/cicd-updater/actions/smoke@v1.0.0
+        with:
+          compose-files: docker-compose.yml,docker-compose.smoke.yml # ADJUST
+          images: '{"app": {"repository": "${{ env.APP_IMAGE }}", "digest": "${{ steps.app.outputs.digest }}"}}'
+          image-vars: '{"app": "APP_IMAGE"}' # ADJUST
+          health-url: http://127.0.0.1:8000/health # ADJUST
+          upgrade-from: previous
+          feed-type: gitea
+          feed-url: ${{ github.server_url }}/${{ github.repository }}
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Tag, sign and attach SBOMs
+        id: publish
+        uses: https://github.com/restow-backup/cicd-updater/actions/publish@v1.0.0
+        with:
+          images: '{"app": {"repository": "${{ env.APP_IMAGE }}", "digests": ["${{ steps.app.outputs.digest }}"]}}'
+          signing: key
+          cosign-key: ${{ secrets.COSIGN_KEY }}
+          cosign-password: ${{ secrets.COSIGN_PASSWORD }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+
+      - name: release.json and the release
+        uses: https://github.com/restow-backup/cicd-updater/actions/release-json@v1.0.0
+        with:
+          images: ${{ steps.publish.outputs.images }}
+          signing: key
+          cosign-key: ${{ secrets.COSIGN_KEY }}
+          cosign-password: ${{ secrets.COSIGN_PASSWORD }}
+          release-host: gitea
+          api-url: ${{ github.server_url }}
+          token: ${{ secrets.RELEASE_TOKEN }}

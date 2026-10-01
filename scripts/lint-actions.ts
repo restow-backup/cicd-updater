@@ -83,10 +83,21 @@ for (const file of targets) {
     if (!match?.[1] || match[1].startsWith("./") || match[1].startsWith("docker://")) {
       return;
     }
-    if (!/@[0-9a-f]{40}$/.test(match[1])) {
-      problems.push(`${name}:${index + 1}: ${match[1]} is not pinned by a full commit SHA`);
+    // Templates and examples reference this project's actions by release tag: the
+    // commit SHA of a release does not exist before it is tagged. Adopters pin the SHA.
+    if (
+      /^(https:\/\/github\.com\/)?restow-backup\/cicd-updater\/actions\/[a-z-]+@v\d+\.\d+\.\d+$/.test(
+        match[1],
+      ) &&
+      !name.startsWith("actions/")
+    ) {
+      return;
+    }
+    const action = match[1].replace(/^https:\/\/github\.com\//, "");
+    if (!/@[0-9a-f]{40}$/.test(action)) {
+      problems.push(`${name}:${index + 1}: ${action} is not pinned by a full commit SHA`);
     } else if (!/^#\s*v\d+(\.\d+)*/.test(match[2] ?? "")) {
-      problems.push(`${name}:${index + 1}: ${match[1]} has no version comment (# vX.Y.Z)`);
+      problems.push(`${name}:${index + 1}: ${action} has no version comment (# vX.Y.Z)`);
     }
   });
 

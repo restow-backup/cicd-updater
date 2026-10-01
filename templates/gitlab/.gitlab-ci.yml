@@ -1,0 +1,94 @@
+# Release pipeline for an app updated by cicd-updater (GitLab CI, keyless signing with
+# the job's OIDC token). GitLab has no composite actions; the same steps run through
+# the `release` CLI of the sidecar image, which carries docker, buildx and cosign.
+#
+# Copy to .gitlab-ci.yml (or include it) and adjust the lines marked "ADJUST". The
+# sidecar verifies the signatures with trust.keyless.gitlab in updater.yaml
+# (host, project, ciConfigPath: .gitlab-ci.yml) at the release tag.
+#
+# Pin the sidecar image by digest: verify it first (docs/upgrading-the-updater.md).
+
+variables:
+  # ADJUST: the image of the app, lowercase.
+  APP_IMAGE: $CI_REGISTRY_IMAGE/app
+  CICD_UPDATER_IMAGE: ghcr.io/restow-backup/cicd-updater:1.0.0 # ADJUST: append @sha256:<digest>
+  DOCKER_HOST: tcp://docker:2376
+  DOCKER_TLS_CERTDIR: /certs
+  DOCKER_TLS_VERIFY: "1"
+  DOCKER_CERT_PATH: /certs/client
+
+stages: [build, smoke, publish]
+
+.release-tools:
+  image:
+    name: $CICD_UPDATER_IMAGE
+    entrypoint: [""]
+  services:
+    - name: docker:28-dind # ADJUST: pin by digest
+      alias: docker
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+/
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
+    - docker run --privileged --rm tonistiigi/binfmt --install arm64 # ADJUST: pin by digest
+    - docker buildx create --use --driver docker-container
+
+build:
+  extends: .release-tools
+  stage: build
+  script:
+    - VERSION="${CI_COMMIT_TAG#v}"
+    - >-
+      cicd-updater release build
+      --images "{\"app\": {\"repository\": \"$APP_IMAGE\"}}"
+      --version "$VERSION"
+      --platforms linux/amd64,linux/arm64
+      --github-output build.env
+    - sed -n 's/^images=/BUILT_IMAGES=/p; s/^smoke-images=/SMOKE_IMAGES=/p' build.env > build.dotenv
+  artifacts:
+    reports:
+      dotenv: build.dotenv
+
+smoke:
+  extends: .release-tools
+  stage: smoke
+  needs: [build]
+  script:
+    # ADJUST: Compose files, image variables and the health URL. The app runs in the
+    # dind service, so the health URL uses the host name "docker".
+    - >-
+      cicd-updater release smoke
+      --compose-files docker-compose.yml,docker-compose.smoke.yml
+      --images "$SMOKE_IMAGES"
+      --image-vars '{"app": "APP_IMAGE"}'
+      --health-url http://docker:3000/healthz
+      --expect-version "${CI_COMMIT_TAG#v}"
+      --upgrade-from previous --feed-type gitlab --feed-url "$CI_PROJECT_URL"
+      --report smoke-report.md
+  artifacts:
+    when: always
+    paths: [smoke-report.md]
+
+publish:
+  extends: .release-tools
+  stage: publish
+  needs: [build, smoke]
+  id_tokens:
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  script:
+    - VERSION="${CI_COMMIT_TAG#v}"
+    - cicd-updater release index --images "$BUILT_IMAGES" --version "$VERSION" --github-output index.env
+    - PUBLISHED="$(sed -n 's/^images=//p' index.env)"
+    - cicd-updater release sign-images --images "$PUBLISHED" --signing keyless
+    - >-
+      cicd-updater release json create --images "$PUBLISHED" --version "$VERSION" --tag "$CI_COMMIT_TAG"
+      --signing keyless --out release.json
+    - cicd-updater release json validate --file release.json --tag "$CI_COMMIT_TAG"
+    - cicd-updater release json sign --file release.json --signing keyless
+    - >-
+      cicd-updater release upload --host gitlab --api-url "$CI_SERVER_URL"
+      --repository "$CI_PROJECT_PATH" --tag "$CI_COMMIT_TAG"
+      --files release.json,release.json.sigstore.json,smoke-report.md
+  artifacts:
+    paths: [release.json, release.json.sigstore.json]
