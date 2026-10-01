@@ -351,7 +351,8 @@ in [app integration](app-integration.md).
 
 1. Mount the token volume read-only into the backend (`updater-shared:/run/cicd-updater:ro`)
    and nowhere else. The token file is `0640`, owner root, group `auth.tokenGroupId`
-   (default 0). If the backend runs as a non-root user, set `auth.tokenGroupId` to its group.
+   (default 0). If the backend runs as a non-root user, set `auth.tokenGroupId` to its group
+   (the examples use 1000 for node-postgres and 10001 for python-postgres).
 2. Let the health endpoint add `version` to its answer only when the request carries
    `Authorization: Bearer <token>` (the sidecar sends it by default, `sendToken: true`).
    Anonymous callers get readiness only.

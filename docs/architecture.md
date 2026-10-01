@@ -118,7 +118,7 @@ SHA-256 equals the one recorded at scheduling.
 | `<projectDir>` | bind, same path as on the host | the Compose files, `.env`, `updater.yaml`, files `updater.yaml` points to | nobody |
 | `/state` | named volume | `status.json` (`0600`), `.lock`, `backups/` (`0700`, files `0600`), `releases/`, `src/` (source mode), `docker-config/` (a link to the registry auth file), `tmp/` | nobody |
 | `/shared` | named volume | `token` (64 hex characters, `0640`, owner root, group `auth.tokenGroupId`) | the app backend, read-only |
-| `/verify` | named volume | one short-lived directory per verification: the document, the bundle, public keys, a trusted root, a registry credential file | the verifier container, read-only |
+| `/verify` | named volume | one short-lived directory per verification (`v-<time>-<random>`): the document, the bundle, public keys, a trusted root, a registry credential file; removed after the verification, leftovers removed at start | the verifier container, read-only |
 
 The project directory must be mounted at the same absolute path inside and outside the
 container: the sidecar runs `docker compose` in it, and Compose resolves relative paths (bind
@@ -172,7 +172,9 @@ docker run --rm --label io.github.restow-backup.cicd-updater.managed=true \
 The verifier has no Docker socket, no capabilities, a read-only root file system and only
 the `/verify` volume, read-only. When `docker.registryAuthFile` is set, the sidecar writes a
 credential file with only the one registry entry this verification needs into the
-per-verification directory and deletes it afterwards.
+per-verification directory and deletes it afterwards. The entry is found by the registry's
+host name, also when its key in the `auths` object carries a scheme or a path
+(`https://ghcr.io`, `https://index.docker.io/v1/`).
 
 `trust.verifier.isolate: false` runs cosign as a subprocess of the sidecar instead. This is
 weaker and meant for environments that cannot start sibling containers. With isolation on,
@@ -186,7 +188,7 @@ Besides the verifier the sidecar starts these containers, all through argument v
 | Container | Started for | Shape |
 | --- | --- | --- |
 | volume archive | `hooks.backup.type: volume` | `docker run --rm` of the sidecar's own image, `--network none --read-only --cap-drop ALL`, the volumes mounted read-only under `/backup-src/<name>`, `tar -czf -` to the sidecar |
-| backup command | `hooks.backup.type: command` | `docker run --rm` of the configured digest-pinned image on the project network (or none), a temporary volume at `/backup`, the configured env keys passed through a `0600` env file |
+| backup command | `hooks.backup.type: command` | `docker run --rm` of the configured digest-pinned image on the configured network (the project's default network, a named network of the Compose file, or none), a temporary volume at `/backup`, the configured env keys passed through a `0600` env file |
 | backup copy | `hooks.backup.type: command` | the sidecar's own image reading the output file from the temporary volume |
 | migration | `hooks.migrate` | `docker compose run --rm --no-deps -T --name cicd-updater-migrate-<runId> <service> <argv>` |
 | commands in app containers | migration probe, `command` health and smoke checks, database backups | `docker compose exec -T <service> <argv>` |
@@ -194,8 +196,9 @@ Besides the verifier the sidecar starts these containers, all through argument v
 Containers the sidecar starts with `docker run` (the verifier, volume archives, backup
 commands and copies) and the temporary backup volume carry the label
 `io.github.restow-backup.cicd-updater.managed=true`; the migration container is known by its
-name. At start the sidecar removes leftover containers with that label and a leftover
-`cicd-updater-migrate-*` container.
+name. At start the sidecar removes leftover containers with that label, a leftover
+`cicd-updater-migrate-*` container, and leftover verification directories
+(`v-<time>-<random>`) in `/verify`.
 
 ## Process and lifecycle
 

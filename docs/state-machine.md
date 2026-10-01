@@ -386,8 +386,9 @@ Before the HTTP server accepts requests, the sidecar:
    schema-invalid file, or one with a newer schema version than the sidecar knows, is moved
    aside as `status.json.corrupt-<epoch ms>` (the newest five are kept); the sidecar
    continues `idle` without history. The running installation is not affected.
-2. removes leftovers: source trees under `/state/src/`, `*.partial` backups, containers with
-   the label `io.github.restow-backup.cicd-updater.managed=true`, a leftover
+2. removes leftovers: verification directories (`v-<time>-<random>`) in
+   `trust.verifier.workDir`, source trees under `/state/src/`, `*.partial` backups, containers
+   with the label `io.github.restow-backup.cicd-updater.managed=true`, a leftover
    `cicd-updater-migrate-*` container; then applies the backup retention.
 3. resolves the run by its phase:
 
@@ -450,5 +451,6 @@ Two CLI commands read the file directly, so they work while the HTTP server does
 `run.message` is a code with parameters (versions, failure codes, counts), for example
 `step.fetch.pulling {index, total}` or `run.needs_attention {code}`. Image names, file names
 and paths appear only in the run log. The public status removes the `version` parameter
-unless `publicStatus.showVersions` is set. The message codes and the journal events are
+unless `publicStatus.showVersions` is set; the message catalogs then use version-free texts
+(`messagesWithoutVersion`, for example "The new version is now running."). The message codes and the journal events are
 listed in [HTTP API](http-api.md).

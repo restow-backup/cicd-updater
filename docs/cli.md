@@ -98,9 +98,9 @@ the image's default command. On SIGTERM or SIGINT it stops within 8 seconds and 
 ### `version`
 
 Prints one line per component: `cicdUpdater` (the sidecar version), `api` (`1.0`), `node`,
-and the first output line of the bundled `docker`, `docker compose`, `docker buildx`,
-`cosign` and `age` (`not available` for a tool that does not run). Needs no configuration.
-`--json` prints an object with the same keys.
+the first output line of the bundled `docker`, `docker compose`, `docker buildx` and `age`,
+and cosign's `gitVersion` (from `cosign version --json`); `not available` for a tool that does
+not run. Needs no configuration. `--json` prints an object with the same keys.
 
 ### `config check [--file F]`
 
@@ -257,7 +257,7 @@ It reads `status.json` directly and works without the HTTP server, also in a one
 container. The commands that `recover show` renders call it with `exec` without `-T`, so the
 question works in a terminal; in a script use `exec -T ... --yes`.
 
-### `maintenance-page export --out <dir> [--status-url URL] [--home-url URL]`
+### `maintenance-page export --out <dir> [--status-url URL] [--home-url URL] [--asset-base URL]`
 
 Writes the static maintenance page (`index.html`, `maintenance.css`, `maintenance.js`, and
 the logo if the branding file names one) into `<dir>`, for edges that serve files
@@ -268,6 +268,7 @@ themselves.
 | `--out <dir>` | required | target directory, created if needed (a path inside the container; the project directory is mounted at the same path) |
 | `--status-url URL` | `/public/v1/status` | where the page reads the public status |
 | `--home-url URL` | `/` | where the page goes when the update is over |
+| `--asset-base URL` | empty | prefix of the stylesheet, script and logo URLs. Empty means relative URLs, for files served next to each other; set an absolute path (for example `/maintenance/`) when the edge serves the page in place of any address. The built-in page the sidecar serves uses `/public/v1/maintenance/`. |
 
 See [maintenance page](maintenance-page.md).
 

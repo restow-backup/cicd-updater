@@ -88,6 +88,11 @@ to the path with the trailing slash):
 | `/public/v1/maintenance/maintenance.js` | the script |
 | `/public/v1/maintenance/logo.png` or `logo.svg` | the logo of the branding file, if any |
 
+The page refers to its files with absolute URLs (`/public/v1/maintenance/maintenance.css`,
+`/public/v1/maintenance/maintenance.js`, the logo under the same prefix) and reads the status
+at `/public/v1/status`. It therefore works when an edge serves it in place of any address of
+the app, as long as the edge forwards `/public/v1/` to the sidecar on the same origin.
+
 The files are sent with a strict Content Security Policy
 (`default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`),
 `Referrer-Policy: no-referrer` and `Cache-Control: no-store`. The page loads nothing from
@@ -109,6 +114,9 @@ What the page does:
   seconds.
 - The language is the browser's language if the page has a catalog for it, otherwise English.
   The built-in catalogs are `en` and `de`.
+- Without `publicStatus.showVersions` the status carries no version, so messages that would
+  name one use a version-free text, for example "Waiting for the application to report the new
+  version." instead of "... to report version 1.4.0.".
 
 If the app fails outside an update, an edge that falls back to the page shows it with the
 idle phase; it does not reload by itself then.
@@ -148,14 +156,24 @@ replace the built-in ones (each only if present). The script always stays built 
 
 - the elements with the ids `title`, `message`, `progress`, `bar`, `steps` and `hint`;
 - a `<script type="application/json" id="catalogs">` element with the text catalogs, one
-  object per language (`phases`, `outcomes`, `steps`, `messages`, `failures`, `ui`);
-- `<script src="maintenance.js">` (inline scripts are blocked by the policy);
-- optionally the attributes `data-status-url` and `data-home-url` on `<html>`.
+  object per language (`phases`, `outcomes`, `steps`, `messages`, `messagesWithoutVersion`,
+  `failures`, `ui`);
+- `<script src="/public/v1/maintenance/maintenance.js">` (inline scripts are blocked by the
+  policy);
+- optionally the attributes `data-status-url` (default `/public/v1/status`) and
+  `data-home-url` (default `/`) on `<html>`.
 
-The easiest start is the built-in page: export it (below), edit it, and point `templateDir`
-at the directory. Export while `templateDir` is not set, otherwise the export copies your
-template. Languages other than `en` and `de` need a template, because their catalogs live in
-the template's `catalogs` element.
+The easiest start is the built-in page. Export it with the same absolute asset URLs the
+sidecar uses, edit it, and point `templateDir` at the directory:
+
+```sh
+docker compose exec updater cicd-updater maintenance-page export \
+  --out /opt/notes/maintenance/template --asset-base /public/v1/maintenance/
+```
+
+Export while `templateDir` is not set, otherwise the export copies your template. Languages
+other than `en` and `de` need a template, because their catalogs live in the template's
+`catalogs` element.
 
 ## Edge configuration
 
@@ -165,46 +183,10 @@ The edge needs two things:
 2. when the app answers 502, 503 or 504 (or cannot be reached), serve
    `/public/v1/maintenance/` from the sidecar instead.
 
-The edge must be on the sidecar's internal network. If the edge is itself a managed service
-(as `web` in the node-postgres example), give it `stopBeforeUpdate: false`, so it keeps
-serving while the app is replaced, and `stopOnAttention: false`, so it keeps showing the page
-when a run ends in `needs_attention`.
-
-### Relative URLs in the page
-
-The built-in `index.html` refers to its stylesheet, script and logo with relative URLs
-(`maintenance.css`, `maintenance.js`) and to the status with `../status`. They resolve
-correctly when the browser's address is `/public/v1/maintenance/`. When the edge serves the
-page **in place** of another address (for example as the error page for `/notes/42`), the
-browser resolves them against that address, the stylesheet and script are not found, and the
-page shows its default text without styling, progress or reload.
-
-Use absolute URLs for a page that is served in place. Export the built-in page into the
-project directory, make the URLs absolute, and use it as the template:
-
-```sh
-docker compose exec updater cicd-updater maintenance-page export \
-  --out /opt/notes/maintenance/template --status-url /public/v1/status --home-url /
-sed -i \
-  -e 's#href="maintenance.css"#href="/public/v1/maintenance/maintenance.css"#' \
-  -e 's#src="maintenance.js"#src="/public/v1/maintenance/maintenance.js"#' \
-  -e 's#src="logo.png"#src="/public/v1/maintenance/logo.png"#' \
-  -e 's#src="logo.svg"#src="/public/v1/maintenance/logo.svg"#' \
-  /opt/notes/maintenance/template/index.html
-```
-
-```yaml
-maintenancePage:
-  enabled: true
-  templateDir: /opt/notes/maintenance/template
-```
-
-Then restart the sidecar (`docker compose --profile updater restart updater`). Export again
-(after removing `templateDir` for a moment) when you change the branding or the languages.
-
-Alternatively, let the edge redirect to `/public/v1/maintenance/` instead of serving the page
-in place. The relative URLs then work as built, and the page returns to the home URL when the
-update is over.
+The edge must be on the sidecar's internal network. If the edge is itself a managed service,
+give it `stopBeforeUpdate: false`, so it keeps serving while the app is replaced, and
+`stopOnAttention: false`, so it keeps showing the page when a run ends in `needs_attention`
+(as `web` in the node-postgres example).
 
 ### Caddy
 
@@ -237,9 +219,9 @@ From [examples/node-postgres/web/Caddyfile](../examples/node-postgres/web/Caddyf
 
 `handle_errors` with status codes catches the errors of the `reverse_proxy` to the app,
 including "the upstream cannot be reached" while the container is stopped, rewrites the
-request to the page and proxies it to the sidecar. With the absolute-URL template above the
-page works for every address. The redirect variant replaces the two lines in
-`handle_errors` with `redir * /public/v1/maintenance/ 302`.
+request to the page and proxies it to the sidecar. The browser keeps the address it asked
+for; the page loads its files from `/public/v1/maintenance/` and goes to the home URL (`/`)
+when the update is over.
 
 ### nginx
 
@@ -285,8 +267,6 @@ server {
 - `error_page ... = @maintenance` hands the request to the named location, which rewrites it
   to the page and proxies it to the sidecar. With a variable in `proxy_pass` and no URI part,
   nginx passes the rewritten URI.
-- The redirect variant: keep `error_page 502 503 504 = @maintenance;` and let the named
-  location answer `return 302 /public/v1/maintenance/;` instead of proxying.
 
 ### Traefik
 
@@ -327,7 +307,6 @@ http:
   labels on the app container: Traefik's Docker provider builds routers from running
   containers, so a router defined on the app container disappears while it is stopped, and
   the request ends in a 404 instead of the maintenance page.
-- The middleware serves the page in place: use the absolute-URL template above.
 
 ### Edges that serve files themselves
 
@@ -336,13 +315,19 @@ http:
 
 ```sh
 docker compose exec updater cicd-updater maintenance-page export \
-  --out /opt/notes/edge/maintenance --status-url /public/v1/status --home-url /
+  --out /opt/notes/edge/maintenance --asset-base /maintenance/
 ```
 
-`--status-url` defaults to `/public/v1/status` and `--home-url` to `/`. Serve the files from
-the edge for 502, 503 and 504, make their asset URLs absolute for the path you serve them
-under (as in the `sed` example above), and still forward `/public/v1/status` to the sidecar so
-the page can show progress. When the sidecar is not running, the edge may answer the status
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--asset-base URL` | empty: relative URLs (`maintenance.css`), the files next to each other | prefix of the stylesheet, script and logo URLs |
+| `--status-url URL` | `/public/v1/status` | where the page reads the public status |
+| `--home-url URL` | `/` | where the page goes when the update is over |
+
+When the edge serves the exported page in place of any address, set `--asset-base` to the
+absolute path under which it serves the files (`/maintenance/` above, with a matching
+location in the edge). Keep forwarding `/public/v1/status` to the sidecar so the page can
+show progress. When the sidecar is not running, the edge may answer the status
 path with the idle document (`{"phase":"idle", ...}`) or an error; the page then keeps its
 default text.
 

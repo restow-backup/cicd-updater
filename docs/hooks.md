@@ -172,7 +172,7 @@ hooks:
       image: docker.io/library/mongo:8@sha256:<digest>   # pinned by digest
       argv: ["mongodump", "--uri=mongodb://mongo:27017/notes", "--archive=/backup/backup.out", "--gzip"]
       envKeys: []           # env file keys whose values the container receives
-      network: project      # project | none
+      network: internal     # project | none | a network key of the Compose file
       outputFile: backup.out
 ```
 
@@ -194,11 +194,17 @@ What happens:
    `/backup/<outputFile>` out of the volume to the sidecar.
 4. The temporary volume is removed.
 
-`network: project` attaches the container to the project's default network (the network
-Compose names `default`, usually `<project>_default`). If your database is attached only to
-custom networks, it is not reachable there: add the database service to the `default`
-network too, or let the command reach it another way. `network: none` gives the container no
-network at all.
+`network` decides where the backup container is attached:
+
+| Value | Network |
+| --- | --- |
+| `project` (default) | the project's default network: the network Compose calls `default`, usually `<project>_default` |
+| a network key of the Compose file, for example `internal` | that network, resolved to its Compose name (`<project>_internal`, or the `name:` the file gives it) |
+| `none` | no network at all |
+
+Choose the network the database is on. When your services use only their own networks (as
+in the examples, `internal` and `public`), the `default` network may not reach the database;
+name the network key instead.
 
 **Verification:** the output file exists and is not empty. The sidecar cannot know more about
 a custom format; check your tool's own verification options and use them in `argv` if it has
