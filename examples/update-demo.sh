@@ -8,9 +8,11 @@
 # update it to 1.1.0. Nothing is signed; never use trust mode none like this in
 # production (docs/trust-modes.md).
 #
-# Needs Docker with Compose v2. The example's demo/demo.env names its images:
+# Needs Docker with Compose v2. The example's demo/demo.env names its images and,
+# optionally, a Compose command to run once after the first start:
 #   DEMO_PROJECT=notes
 #   DEMO_IMAGES="app:APP_IMAGE:app/Dockerfile web:WEB_IMAGE:web/Dockerfile"
+#   DEMO_SETUP="run --rm -T api npm run --silent migrate"
 set -euo pipefail
 
 example="${1:?usage: update-demo.sh <example directory> [up|down]}"
@@ -99,6 +101,11 @@ secret() { od -An -N16 -tx1 /dev/urandom | tr -d ' \n'; }
 chmod 600 .env
 
 "${compose[@]}" up -d --wait
+if [ -n "${DEMO_SETUP:-}" ]; then
+  # A first-install step of the example (demo.env), for example the initial migrations.
+  # shellcheck disable=SC2086 # word splitting intended: Compose arguments
+  "${compose[@]}" $DEMO_SETUP
+fi
 echo "1.0.0 is running; scheduling the update to 1.1.0 through the sidecar."
 "${compose[@]}" exec -T updater cicd-updater schedule 1.1.0 --in 0 --yes --label update-demo
 

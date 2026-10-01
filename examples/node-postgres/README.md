@@ -46,10 +46,12 @@ from a button in its admin page.
      --certificate-oidc-issuer https://token.actions.githubusercontent.com
    ```
 
-4. **Start** the app with the sidecar and check the setup:
+4. **Start** the app with the sidecar, create the schema once (later updates run the
+   migrations through `hooks.migrate`), and check the setup:
 
    ```sh
    docker compose --profile updater up -d
+   docker compose run --rm api npm run --silent migrate
    docker compose exec updater cicd-updater doctor
    ```
 
@@ -71,5 +73,6 @@ starts 1.0.0 with the sidecar and updates it to 1.1.0. It uses trust mode `none`
 file feed (`demo/updater.yaml`), because nothing is signed there: a demo of the mechanics, not
 a production setup. `make demo-down` removes everything it created.
 
-Before the first build, create the lock file once (`cd app && npm install`) and commit
-`app/package-lock.json`; the Dockerfiles install with `npm ci`.
+`app/package-lock.json` pins every dependency, the SDK tarball of the cicd-updater release
+included (its `integrity`); the Dockerfiles install with `npm ci`. After changing
+`app/package.json`, run `npm install` in `app/` and commit the lock file.

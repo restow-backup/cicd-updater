@@ -311,6 +311,12 @@ exclusive.
 The table names are the defaults of each tool. If you renamed the migration table, write the
 query yourself.
 
+The table must exist before the first update: the baseline is read before anything new
+runs, and a missing table fails the run with `backup.baseline_unavailable` (nothing is
+changed). Apps that migrate at container start have it after their first start. With
+`hooks.migrate`, run the migrations once when you install the app (for example
+`docker compose run --rm api npm run migrate`).
+
 ### The fingerprint
 
 With `fingerprint: true` (the default for `postgres` and `mysql`) the value becomes
