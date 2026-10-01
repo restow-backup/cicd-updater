@@ -1,0 +1,15 @@
+# Only what docker/Dockerfile copies; everything else stays out of the context.
+**/node_modules
+**/dist
+**/coverage
+**/.env
+.git
+KONZEPT.md
+work
+e2e
+examples
+docs
+templates
+actions
+schemas
+openapi

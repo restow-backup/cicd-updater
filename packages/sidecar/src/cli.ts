@@ -45,6 +45,7 @@ export const USAGE = `Usage: cicd-updater <command> [flags]
   version                            sidecar, API and bundled tool versions
   config check [--file F]            validate offline, print the effective configuration and its hash
   doctor                             check every prerequisite, read-only
+  healthcheck                        exit 0 when the running sidecar answers /healthz (image HEALTHCHECK)
   status                             phase, run, progress, outcome, running version
   releases [--refresh]               newer releases with refusals
   verify <version>                   dry-run verification (no pull)
@@ -301,6 +302,21 @@ export async function runCli(
     return EXIT.config;
   }
   const config = loaded.config;
+
+  if (command === "healthcheck") {
+    // The image's HEALTHCHECK: the liveness endpoint on the configured listen address.
+    const [host, port] = splitListen(config.server.listen);
+    const base = `http://${host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host.includes(":") ? `[${host}]` : host}:${port}`;
+    try {
+      const response = await deps.fetch(`${base}/healthz`, {
+        redirect: "error",
+        signal: AbortSignal.timeout(4000),
+      });
+      return response.ok ? EXIT.ok : EXIT.failed;
+    } catch {
+      return EXIT.unreachable;
+    }
+  }
 
   if (command === "doctor") {
     const redactor = new Redactor(config.logging.redactPatterns);

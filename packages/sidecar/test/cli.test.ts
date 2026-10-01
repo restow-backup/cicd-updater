@@ -188,6 +188,18 @@ describe("cli", () => {
     expect(await runCli(["status"], deps())).toBe(EXIT.unreachable);
   });
 
+  it("answers the image health check from /healthz without the token", async () => {
+    expect(await runCli(["healthcheck"], deps())).toBe(EXIT.ok);
+    expect(requests.at(-1)?.url).toBe("http://127.0.0.1:8090/healthz");
+    expect(requests.at(-1)?.headers.get("authorization")).toBeNull();
+    const down = deps({
+      fetch: (async () => {
+        throw new TypeError("fetch failed");
+      }) as unknown as typeof fetch,
+    });
+    expect(await runCli(["healthcheck"], down)).toBe(EXIT.unreachable);
+  });
+
   it("restores the captured env lines of a needs_attention run, only with confirmation", async () => {
     h.appAt("1.1.0", { kind: "never", migrates: 1 });
     await h.engine.schedule(

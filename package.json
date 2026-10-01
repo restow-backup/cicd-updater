@@ -22,7 +22,9 @@
     "check:generated": "tsx scripts/generate.ts --check",
     "build": "pnpm -r --workspace-concurrency=1 build",
     "lint:actions": "tsx scripts/lint-actions.ts",
-    "bundle": "pnpm --filter @cicd-updater/release-tools build"
+    "bundle": "pnpm --filter @cicd-updater/release-tools build",
+    "notices": "tsx scripts/third-party-notices.ts",
+    "check:notices": "tsx scripts/third-party-notices.ts --check"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
