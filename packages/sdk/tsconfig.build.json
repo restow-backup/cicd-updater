@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@cicd-updater/protocol": ["../protocol/src/index.ts"],
+      "@cicd-updater/feed": ["../feed/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

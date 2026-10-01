@@ -1,0 +1,9 @@
+cicd-updater
+Copyright 2026 IT Systeme Flores UG (haftungsbeschränkt)
+
+This product includes software developed by IT Systeme Flores UG (haftungsbeschränkt),
+in part derived from Restow (https://github.com/restow-backup/restow), Apache License 2.0.
+
+The container image bundles third-party software under their own licenses
+(Docker CLI, Docker Compose, Docker Buildx, cosign, age, Node.js, Alpine Linux packages);
+see /usr/share/doc/cicd-updater/THIRD_PARTY_NOTICES in the image.
