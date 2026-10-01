@@ -1,0 +1,22 @@
+{
+  "name": "@cicd-updater/sidecar",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@cicd-updater/engine": "workspace:^",
+    "@cicd-updater/feed": "workspace:^",
+    "@cicd-updater/protocol": "workspace:^",
+    "@hono/node-server": "^2.1.3",
+    "hono": "^4.13.12",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
+  }
+}

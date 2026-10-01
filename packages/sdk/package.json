@@ -1,0 +1,87 @@
+{
+  "name": "@restow-backup/cicd-updater",
+  "version": "1.0.0",
+  "description": "SDK for cicd-updater: talk to the update sidecar, check the release feed safely, verify the sidecar's token, React components for maintenance banners.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "author": "IT Systeme Flores UG (haftungsbeschränkt)",
+  "homepage": "https://github.com/restow-backup/cicd-updater/blob/main/docs/sdk.md",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/restow-backup/cicd-updater.git",
+    "directory": "packages/sdk"
+  },
+  "bugs": "https://github.com/restow-backup/cicd-updater/issues",
+  "keywords": [
+    "docker",
+    "compose",
+    "updater",
+    "cosign",
+    "sigstore",
+    "self-hosted"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./feed": {
+      "types": "./dist/feed.d.ts",
+      "import": "./dist/feed.js"
+    },
+    "./auth": {
+      "types": "./dist/auth.d.ts",
+      "import": "./dist/auth.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "import": "./dist/protocol.js"
+    },
+    "./semver": {
+      "types": "./dist/semver.d.ts",
+      "import": "./dist/semver.js"
+    },
+    "./messages": {
+      "types": "./dist/messages.d.ts",
+      "import": "./dist/messages.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsup"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@cicd-updater/feed": "workspace:^",
+    "@cicd-updater/protocol": "workspace:^",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  }
+}

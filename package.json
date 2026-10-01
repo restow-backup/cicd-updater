@@ -1,0 +1,39 @@
+{
+  "name": "cicd-updater-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "Signed, self-service updates for apps run with Docker Compose.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/restow-backup/cicd-updater.git"
+  },
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r --workspace-concurrency=1 typecheck",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "generate": "tsx scripts/generate.ts",
+    "check:generated": "tsx scripts/generate.ts --check",
+    "build": "pnpm -r --workspace-concurrency=1 build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "@cicd-updater/protocol": "workspace:^",
+    "@types/node": "^22",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "fast-check": "^4.10.2",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.3",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
+  }
+}
