@@ -71,6 +71,9 @@ importers:
 
   packages/release-tools:
     dependencies:
+      '@cicd-updater/feed':
+        specifier: workspace:^
+        version: link:../feed
       '@cicd-updater/protocol':
         specifier: workspace:^
         version: link:../protocol
@@ -117,6 +120,9 @@ importers:
       '@cicd-updater/protocol':
         specifier: workspace:^
         version: link:../protocol
+      '@cicd-updater/release-tools':
+        specifier: workspace:^
+        version: link:../release-tools
       '@hono/node-server':
         specifier: ^2.1.3
         version: 2.1.3(hono@4.13.12)

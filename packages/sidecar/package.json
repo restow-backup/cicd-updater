@@ -14,6 +14,7 @@
     "@cicd-updater/engine": "workspace:^",
     "@cicd-updater/feed": "workspace:^",
     "@cicd-updater/protocol": "workspace:^",
+    "@cicd-updater/release-tools": "workspace:^",
     "@hono/node-server": "^2.1.3",
     "hono": "^4.13.12",
     "yaml": "^2.9.1",
