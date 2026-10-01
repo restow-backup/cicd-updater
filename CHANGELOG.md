@@ -7,24 +7,9 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
-### Added
+## [1.0.0] - YYYY-MM-DD
 
-- `templates/web-app`: a copy-paste starter for connecting an existing web app: the sidecar
-  as a Compose fragment, a commented `updater.yaml`, the release workflow and policy,
-  backend endpoints with authorization, step-up and audit hooks (TypeScript with Express
-  and Hono adapters, FastAPI, a plain HTTP reference), health with version, migration
-  probe queries, the admin "Updates" page and the maintenance banner (React and plain
-  JavaScript), and an integration checklist. Type-checked against the SDK in CI.
-- `README.de.md`: the README in German.
-
-### Changed
-
-- README: who cicd-updater is for and not for, what it guarantees and what not, the run
-  step by step, and a guided setup path for existing projects.
-
-## [1.0.0]
-
-The first release (the date is added when it is tagged). It establishes the 1.x contracts listed below; within 1.x they change
+The first release. It establishes the 1.x contracts listed below; within 1.x they change
 only in backward-compatible ways.
 
 ### Added
@@ -64,5 +49,35 @@ only in backward-compatible ways.
   `release` CLI (`env-check`, `json create|validate|sign|verify`, `sign-images`, `upload`,
   `smoke`, `build`, `index`, `sbom`, `version`, `check-tag`).
 - The SDK `@restow-backup/cicd-updater` with the entry points `.`, `/feed`, `/auth`,
-  `/protocol`, `/semver`, `/messages` and `/react`.
+  `/protocol`, `/semver`, `/messages` (also the texts of an admin "Updates" page in English
+  and German), `/maintenance` (the banner's polling logic without React) and `/react`.
 - Examples: node-postgres (level 3), python-postgres (level 2), static-site (level 1).
+- `templates/web-app`: a copy-paste starter for connecting an existing web app: the sidecar
+  as a Compose fragment, a commented `updater.yaml`, the release workflow and policy,
+  backend endpoints with authorization, step-up and audit hooks (TypeScript with Express
+  and Hono adapters, FastAPI, a plain HTTP reference), health with version, migration
+  probe queries, the admin "Updates" page and the maintenance banner (React and plain
+  JavaScript), and an integration checklist. Type-checked against the SDK in CI.
+- `README.de.md`: the README in German.
+- The end-to-end suite (`pnpm e2e`, `e2e/`): Docker-in-Docker with distribution/registry v3
+  over TLS, releases built and signed with the `release` CLI, and scenarios for trust,
+  failures and rollback, restarts, locks and blockers, real backups and their restores,
+  the three examples and the release tools. Results in `docs/compatibility.md`.
+
+### Fixed (found by the end-to-end run)
+
+- Key-mode signing with cosign 3: `--tlog-upload=false` needs `--use-signing-config=false`.
+- A signature by another key was reported as `fetch.signature_missing` with cosign 3; it is
+  `fetch.signature_invalid`.
+- Image pruning did nothing on Docker 29, which lists untagged images only with `--all`.
+- `cicd-updater version` reported the Docker CLI as "not available" without a daemon.
+- The release smoke's upgrade through the sidecar: its files lie in the checkout (the
+  sidecar container mounts them), the sidecar gets the smoke's Compose files, and the
+  teardown removes the sidecar too.
+- The free-space check measures the file system of the backups directory (a separate
+  volume at `/state/backups` works); the changelog check names a placeholder date.
+- static-site: the image build failed (nginx-unprivileged runs as uid 101).
+- node-postgres: the first install creates the schema (README, update demo); the example
+  ships its lock file. The examples' `UPDATER_URL=` switches the in-app updates off.
+- `templates/github/release.yml`: no version check in the token-less smoke by default.
+- The React banner announces only state changes; the countdown is outside the live region.

@@ -369,16 +369,17 @@ und JavaScript-Dateien werden in der CI dieses Repositorys gegen das SDK typgepr
 | SDK | Node.js 22 und neuer für die Server-Teile; Protokoll, SemVer und Texte laufen überall; React 18 und neuer |
 
 Jeder Eintrag hat in [docs/compatibility.md](docs/compatibility.md) einen Status:
-**Tested** (von den Unit-Tests abgedeckt, die mit Fakes laufen), **Expected** (sollte laut
-Dokumentation der jeweiligen Software funktionieren) oder **To verify** (noch zu prüfen).
-1.0 ist implementiert und durch etwa 520 Unit-Tests abgedeckt. Noch **To verify**, im
-anstehenden End-to-End-Lauf: alles gegen echtes Docker (Engine-Versionen, der
-containerd-Image-Store, rootless Docker), echte Registries (GHCR, distribution, Signaturen
-in der Forgejo/Gitea-Registry, mit `cosign copy` befüllte Spiegel), keyless Signieren mit
-Sigstore aus GitHub Actions, der Forgejo-Actions-Runner und die drei Beispiele von Anfang
-bis Ende aktualisiert. Die Ergebnisse werden auf dieser Seite festgehalten. In 1.0 nicht
-unterstützt: Podman, Kubernetes, Swarm, Nomad, Apps über mehrere Hosts und entfernte
-Docker-Hosts.
+**Tested (e2e)** (von der End-to-End-Suite wirklich ausgeführt: echtes Docker, eine echte
+Registry, das cosign des Sidecar-Images), **Tested (unit)** (die Unit-Tests, die mit Fakes
+laufen), **Expected** (sollte laut Dokumentation der jeweiligen Software funktionieren) oder
+**To verify** (noch zu prüfen). 1.0 ist durch etwa 550 Unit-Tests und eine End-to-End-Suite
+(`pnpm e2e`) abgedeckt, die die drei Beispiele installiert und aktualisiert und die
+Szenarien zu Vertrauen, Fehlern, Neustarts, Backups und Release-Werkzeugen gegen Docker
+Engine 29 ausführt (klassischer Image-Store, `linux/arm64`). Noch **To verify**: der
+containerd-Image-Store, `linux/amd64`, rootless Docker, die Forgejo/Gitea-Registry, mit
+`cosign copy` befüllte Spiegel, der Forgejo-Actions-Runner und mit dem ersten Release das
+keyless Signieren aus GitHub Actions und GHCR. In 1.0 nicht unterstützt: Podman, Kubernetes,
+Swarm, Nomad, Apps über mehrere Hosts und entfernte Docker-Hosts.
 
 ## Sicherheit
 

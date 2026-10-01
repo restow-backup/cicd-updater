@@ -345,16 +345,17 @@ and JavaScript files are type-checked against the SDK in this repository's CI.
 | Release feeds | GitHub, Forgejo/Gitea and GitLab releases, a static index, a local directory |
 | SDK | Node.js 22 and newer for the server parts; protocol, SemVer and messages run anywhere; React 18 and newer |
 
-Every entry carries a status in [docs/compatibility.md](docs/compatibility.md): **Tested**
-(covered by the unit tests, which run with fakes), **Expected** (should work according to
-the upstream documentation) or **To verify**. 1.0 is implemented and covered by about 520
-unit tests. Still **To verify**, in the end-to-end run that comes next: everything against
-real Docker (Engine versions, the containerd image store, rootless Docker), real
-registries (GHCR, distribution, signatures in the Forgejo/Gitea registry, mirrors filled
-with `cosign copy`), keyless signing with Sigstore from GitHub Actions, the Forgejo
-Actions runner, and the three examples updated end to end. The results are recorded on
-that page. Not supported in 1.0: Podman, Kubernetes, Swarm, Nomad, multi-host apps and
-remote Docker hosts.
+Every entry carries a status in [docs/compatibility.md](docs/compatibility.md): **Tested
+(e2e)** (run for real by the end-to-end suite: real Docker, a real registry, the cosign of
+the sidecar image), **Tested (unit)** (the unit tests, which run with fakes), **Expected**
+(should work according to the upstream documentation) or **To verify**. 1.0 is covered by
+about 550 unit tests and an end-to-end suite (`pnpm e2e`) that installs and updates the
+three examples and runs the trust, failure, restart, backup and release-tool scenarios
+against Docker Engine 29 (classic image store, `linux/arm64`). Still **To verify**: the
+containerd image store, `linux/amd64`, rootless Docker, the Forgejo/Gitea registry, mirrors
+filled with `cosign copy`, the Forgejo Actions runner, and with the first release keyless
+signing from GitHub Actions and GHCR. Not supported in 1.0: Podman, Kubernetes, Swarm,
+Nomad, multi-host apps and remote Docker hosts.
 
 ## Security
 
