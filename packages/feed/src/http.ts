@@ -1,6 +1,9 @@
+import { createWriteStream } from "node:fs";
+import * as fs from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import type { FeedErrorCode } from "@cicd-updater/protocol";
 import {
   guardedLookup,
@@ -211,6 +214,44 @@ export async function readCapped(response: Response, maxBytes: number): Promise<
   return Buffer.concat(chunks);
 }
 
+/** Stream the body into a new file, given up past the cap (the partial file is removed). */
+export async function writeCapped(
+  response: Response,
+  maxBytes: number,
+  destination: string,
+): Promise<number> {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    void response.body?.cancel().catch(() => undefined);
+    throw new FeedError("invalid_response", response.status, null, "too_large");
+  }
+  if (!response.body) {
+    throw new FeedError("invalid_response", response.status, null, "empty");
+  }
+  let total = 0;
+  const limiter = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      total += chunk.length;
+      if (total > maxBytes) {
+        callback(new FeedError("invalid_response", response.status, null, "too_large"));
+        return;
+      }
+      callback(null, chunk);
+    },
+  });
+  try {
+    await pipeline(
+      Readable.fromWeb(response.body as never),
+      limiter,
+      createWriteStream(destination, { flags: "wx", mode: 0o600 }),
+    );
+  } catch (error) {
+    await fs.rm(destination, { force: true });
+    throw error;
+  }
+  return total;
+}
+
 export interface FeedClientOptions {
   policy: HostPolicy;
   /** Sent as an `Authorization` header to `tokenOrigin` only. */
@@ -232,6 +273,8 @@ export interface RequestOptions {
   timeoutMs: number;
   /** Release lists: only same-origin redirects. Assets: other origins allowed, token dropped. */
   crossOriginRedirects: boolean;
+  /** Stream the body into this new file (mode 0600) instead of returning it. */
+  destination?: string;
 }
 
 /** One feed client: transport, token and policy. */
@@ -309,6 +352,10 @@ export class FeedHttp {
           void response.body?.cancel().catch(() => undefined);
           throw errorForStatus(response, nowMs);
         }
+        if (request.destination) {
+          await writeCapped(response, request.maxBytes, request.destination);
+          return { body: Buffer.alloc(0), url: current.toString(), status: response.status };
+        }
         const body = await readCapped(response, request.maxBytes);
         return { body, url: current.toString(), status: response.status };
       }
@@ -334,6 +381,22 @@ export class FeedHttp {
     } catch {
       throw new FeedError("invalid_response", status, null, "not_json");
     }
+  }
+
+  /** Download into a file (source archives); redirects to other origins allowed, the token dropped there. */
+  async download(
+    url: string,
+    destination: string,
+    maxBytes: number,
+    timeoutMs: number,
+  ): Promise<void> {
+    await this.get(url, {
+      accept: "application/x-gzip, application/gzip, application/octet-stream, */*",
+      maxBytes,
+      timeoutMs,
+      crossOriginRedirects: true,
+      destination,
+    });
   }
 
   /** An asset (release.json, bundle); redirects to other origins allowed, the token dropped there. */
