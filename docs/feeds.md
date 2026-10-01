@@ -212,7 +212,7 @@ match is on the exact host name, lowercase.
 | --- | --- |
 | Sidecar | `release.feed.allowPrivateNetwork: true` puts the host of `release.feed.url` on the allowlist. Nothing else: a redirect or an asset URL to another private host is still refused. |
 | SDK | `allowPrivateHosts: ["git.internal.example"]` |
-| Release tools (`upgrade-from`) | no allowlist; only public hosts |
+| Release tools (`upgrade-from` of the smoke) | input `feed-allow-private-host` of the `smoke` action, or `--feed-allow-private-host <host>` (repeatable) of `cicd-updater release smoke` |
 
 **Failures say nothing about the network.** A refused address, a DNS failure and a failed
 connection all produce `network` without detail. Only a TLS error of a host that was

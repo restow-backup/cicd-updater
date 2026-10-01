@@ -45,13 +45,14 @@ Rules:
   sidecar links it as `<state.dir>/docker-config/config.json` and sets `DOCKER_CONFIG` to
   that directory for its child processes. The file is not copied.
 - **Verification** gets its own copy for each verification, with only the one entry it
-  needs: the entry whose key is the registry host of the image reference (`ghcr.io`,
-  `registry.example.com:5000`; for Docker Hub `docker.io` or
-  `https://index.docker.io/v1/`). The copy is written into the verification workspace
-  under `trust.verifier.workDir` with mode `0400`, owned by the verifier user
-  (`65534:65534`), handed to cosign as the path in `DOCKER_CONFIG`, and deleted after the
-  verification. Use the bare host as the key; an entry keyed `https://ghcr.io` is not found
-  for verification.
+  needs: the entry for the registry host of the image reference (`ghcr.io`,
+  `registry.example.com:5000`). Keys are matched case-insensitively and with a scheme or
+  path ignored, so `ghcr.io`, `https://ghcr.io` and `https://ghcr.io/v2/` all match. For
+  Docker Hub, `docker.io`, `index.docker.io` and `registry-1.docker.io` (also as
+  `https://index.docker.io/v1/`) are the same registry. The copy is written into the
+  verification workspace under `trust.verifier.workDir` with mode `0400`, owned by the
+  verifier user (`65534:65534`), handed to cosign as the path in `DOCKER_CONFIG`, and
+  deleted after the verification.
 - Credentials never appear in command-line arguments.
 
 Give the sidecar a read-only token. As a guide: on GHCR a token with `read:packages`; on

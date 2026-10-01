@@ -90,10 +90,10 @@ Release-side functions:
 | `release.json` creation and validation, the release policy file | Tested | |
 | cosign argument vectors of signing (`sign`, `sign-blob`, `attest`) | Tested | real signing is to be verified |
 | Build, index and SBOM argument vectors; the immutability check of `index` | Tested | against a fake `docker buildx imagetools`; real registries are to be verified |
-| Release smoke: env check, env file, no-restart override, health and version | Tested | with a fake Docker; real Compose is to be verified |
+| Release smoke: env check, env file (with `--env` values), Compose calls without the runner's variables named like env file keys, no-restart override, health and version | Tested | with a fake Docker; real Compose is to be verified |
 | Release smoke against real Docker, including `upgrade-from` by recreate | To verify | recorded after the e2e run |
-| Release smoke: upgrade through the sidecar (file feed, `none` mode) | To verify | recorded after the e2e run |
-| Upload: GitHub, Forgejo/Gitea and GitLab release APIs | Tested | against fake servers |
+| Release smoke: upgrade through the sidecar (file feed, `none` mode, sidecar environment and volumes replaced with `!override`) | To verify | needs Docker Compose 2.24 or newer on the runner; recorded after the e2e run |
+| Upload: GitHub, Forgejo/Gitea and GitLab release APIs, server URL or API base | Tested | against fake servers |
 | Upload to the real GitHub and Forgejo APIs | To verify | recorded after the e2e run |
 | Upload to the real GitLab API | Expected | |
 

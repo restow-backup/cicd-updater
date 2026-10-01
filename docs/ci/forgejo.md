@@ -71,24 +71,22 @@ The hosts need their own read-only tokens: `read:package` in `docker.registryAut
 ### 3. Copy and adjust the template
 
 Copy `templates/forgejo/release.yml` to `.forgejo/workflows/release.yml` and adjust the
-lines marked `ADJUST` (image, registry host, runner label, Compose files, image variables,
-health URL). Two more changes are needed:
+lines marked `ADJUST`:
 
-- **The API base for the upload.** `release-host: gitea` expects the API base
-  `https://<host>[/<prefix>]/api/v1` in `api-url`. Use
+- `APP_REPOSITORY` (`<forgejo host>/<owner>/<image>`, lowercase) and `REGISTRY`. The
+  repository variable is deliberately not named like the Compose image variable
+  (`APP_IMAGE`), which receives `repository@digest` in the smoke;
+- the runner label, the Compose files, `image-vars`, the health URL;
+- throwaway values for variables the Compose file requires but `.env.example` leaves
+  empty, in the commented `env` input of the smoke step:
 
   ```yaml
-          release-host: gitea
-          api-url: ${{ github.server_url }}/api/v1
+            env: |
+              POSTGRES_PASSWORD=smoke-${{ github.run_id }}
   ```
 
-  instead of `api-url: ${{ github.server_url }}`.
-- **The variable that holds the repository.** The template keeps the repository in a
-  workflow-level variable `APP_IMAGE` and passes `image-vars: '{"app": "APP_IMAGE"}'`.
-  Workflow variables are in the environment of the smoke step, and Compose prefers its
-  environment to the smoke env file, so the smoke would start the repository's `latest`
-  tag instead of the pushed digest. Rename the workflow variable, for example to
-  `APP_REPOSITORY`, and update its references.
+`api-url: ${{ github.server_url }}` with `release-host: gitea` is correct as it is: the
+release tools append `/api/v1` to a server URL (the API base works too).
 
 Reference the actions by commit SHA rather than by tag:
 
@@ -100,12 +98,12 @@ Reference the actions by commit SHA rather than by tag:
 
 The smoke step reads earlier releases with `feed-type: gitea`, `feed-url:
 ${{ github.server_url }}/${{ github.repository }}` and `token: ${{ secrets.RELEASE_TOKEN }}`.
-Two cases need `upgrade-from: none`:
 
-- the very first release (the feed has no release yet and the read fails with
-  `no_release`);
-- a Forgejo instance on a private network: the release tools connect only to public
-  addresses and have no setting to allow a private host ([feeds.md](../feeds.md)).
+- For the first release there is nothing to upgrade from; the upgrade test is skipped with
+  a note.
+- The release tools connect only to public addresses. For a Forgejo instance on a private
+  network, uncomment `feed-allow-private-host` and set it to the exact host name, for
+  example `git.example.com` ([feeds.md](../feeds.md)).
 
 ### 5. Release
 

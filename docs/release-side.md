@@ -70,7 +70,7 @@ The build sets these OCI labels on every image:
 | `org.opencontainers.image.version` | the plain version, without `v` |
 | `org.opencontainers.image.revision` | the commit (`github.sha`, or `GITHUB_SHA` / `CI_COMMIT_SHA` in the CLI) |
 | `org.opencontainers.image.source` | the repository URL (`$GITHUB_SERVER_URL/$GITHUB_REPOSITORY`, or `CI_PROJECT_URL`) |
-| `org.opencontainers.image.created` | the commit time (`git log -1 --format=%cI`), the current time when `git` is not available |
+| `org.opencontainers.image.created` | the commit time (`git log -1 --format=%cI`); without `git`, `CI_COMMIT_TIMESTAMP` (GitLab), else the current time |
 
 The sidecar compares `org.opencontainers.image.version` with the target version after the
 pull (`fetch.version_label_mismatch`) and uses it to detect the running version.
@@ -150,6 +150,8 @@ Starts the release from its Compose files with the pushed digests and tears it d
 | `feed-type` | empty | Feed of earlier releases for `upgrade-from`: `github`, `gitea`, `gitlab` or `static`; empty means this GitHub repository. |
 | `feed-url` | empty | Feed URL for `upgrade-from`; empty means this GitHub repository. |
 | `token` | `${{ github.token }}` | Token for reading earlier releases; sent only to the feed origin. |
+| `feed-allow-private-host` | empty | A feed host that may resolve to a private or loopback address for `upgrade-from` (an internal Forgejo); empty means public addresses only. |
+| `env` | empty | Throwaway values for the smoke, one `KEY=VALUE` per line (for example a scratch database password). They override the lines of `.env.example`. |
 | `updater-config` | empty | `updater.yaml` of the project; when set, the upgrade runs through the sidecar. |
 | `updater-image` | empty | The sidecar image, pinned by digest; required with `updater-config`. |
 | `timeout-seconds` | `600` | Time limit for each wait (start, health, the upgrade through the sidecar). |
@@ -224,7 +226,7 @@ Writes, validates, signs, verifies and uploads `release.json`, then publishes th
 | `transparency-log` | `false` | `key` mode: also upload the signature to the public transparency log. |
 | `cosign-version` | `v3.1.3` | cosign release to install. |
 | `release-host` | empty | `github`, `gitea` (also Forgejo), `gitlab` or `none` (upload nothing). Empty means `github` on github.com and is an error elsewhere. |
-| `api-url` | empty | API base of the release host (see the note below). Empty means GitHub's API. |
+| `api-url` | empty | Server URL or API base of the release host (see the note below). Empty means GitHub's API. |
 | `repository` | empty | `owner/repo` (GitLab: `group/project`) on the release host; empty means this repository. |
 | `token` | `${{ github.token }}` | Token with write access to the releases of the repository. |
 | `publish-release` | `true` | Publish the release after the upload; `false` leaves a draft. |
@@ -240,13 +242,14 @@ Writes, validates, signs, verifies and uploads `release.json`, then publishes th
 | `sha256` | SHA-256 of `release.json`, the value an admin compares before scheduling (`expect.releaseSha256`). |
 | `url` | URL of the release. |
 
-`api-url` is the **API base**, not the server URL:
+`api-url` accepts the server URL or the API base. For Forgejo, Gitea and GitLab the
+release tools append `/api/v1` or `/api/v4` when it is missing:
 
 | Release host | `api-url` |
 | --- | --- |
 | `github` | empty (uses `GITHUB_API_URL` or `https://api.github.com`) |
-| `gitea` | `https://<host>[/<prefix>]/api/v1`, for example `${{ github.server_url }}/api/v1` |
-| `gitlab` | `https://<host>/api/v4` (GitLab CI provides it as `CI_API_V4_URL`) |
+| `gitea` | `https://<host>[/<prefix>]`, for example `${{ github.server_url }}`, or the API base `https://<host>[/<prefix>]/api/v1` |
+| `gitlab` | `https://<host>` (`CI_SERVER_URL`), or the API base `https://<host>/api/v4` (`CI_API_V4_URL`) |
 
 What it runs, in order:
 
@@ -282,7 +285,9 @@ writes and signs `release.json` and publishes the release.
 | `registry`, `username`, `password` | empty | Registry login (skipped when `registry` or `password` is empty). |
 | `smoke` | `true` | Run the smoke test; needs `compose-files`, `image-vars` and `health-url`. |
 | `compose-files`, `env-example`, `image-vars`, `health-url`, `health-version-path` | empty, `.env.example`, empty, empty, empty | As in `smoke`. |
-| `upgrade-from` | `none` | As in `smoke`. Reads earlier releases of this GitHub repository only (there are no `feed-type`/`feed-url` inputs). |
+| `upgrade-from` | `none` | As in `smoke`. |
+| `feed-type`, `feed-url` | empty | As in `smoke`: the feed of earlier releases; empty means this GitHub repository. |
+| `smoke-env` | empty | As `env` in `smoke`: throwaway values, one `KEY=VALUE` per line. |
 | `updater-config`, `updater-image` | empty | As in `smoke`. |
 | `timeout-seconds` | `600` | As in `smoke`. |
 | `extra-tags`, `signing`, `cosign-key`, `cosign-password`, `transparency-log`, `cosign-version`, `sbom`, `refuse-existing` | as in `publish` | |
@@ -346,7 +351,8 @@ Each run uses its own Compose project name `cicd-updater-smoke-<random>` and the
 2. **The env file, as written.** The smoke env file contains every assigned line of
    `.env.example` exactly as written (empty optional values stay empty, because that is what
    production gets), leaves commented lines out, and appends the image variables as
-   `<VAR>=<repository>@<digest>`. It is written with mode `0600`.
+   `<VAR>=<repository>@<digest>` and the throwaway values of the `env` input (`--env`),
+   which replace lines of `.env.example` with the same key. It is written with mode `0600`.
 3. **No restart policies.** `docker compose config --services` lists the services; an
    extra override sets `restart: "no"` on every service, so a crash stays visible instead of
    looping.
@@ -377,13 +383,16 @@ Practical points:
         - "127.0.0.1:3000:3000"
   ```
 
-- **The process environment wins over the env file.** Compose prefers variables of its own
-  environment to `--env-file`, and the smoke passes the runner's environment through. Do
-  not export a variable with the name of an image variable (for example `APP_IMAGE`) in the
-  job or workflow environment of the smoke step, or the smoke runs that value instead of
-  the pushed digest. Conversely, a value that production gets from the operator (a
-  database password) and that is empty in `.env.example` can be given to the smoke as a
-  throwaway value in the step's `env:`.
+- **The env file decides.** Compose prefers variables of its own environment to
+  `--env-file`, so the smoke runs every Compose command without the runner's environment
+  variables whose names are keys of the smoke env file. A CI variable named like an image
+  variable (for example `APP_IMAGE`) cannot replace the pushed digest. The templates keep
+  the repositories in variables with other names (`APP_REPOSITORY`) to avoid confusion.
+- **Values the operator provides in production.** A variable that is empty in
+  `.env.example` is empty in the smoke. When a Compose file requires it (`${VAR:?}`), give
+  the smoke a throwaway value with the `env` input (`--env KEY=VALUE` in the CLI), for
+  example `POSTGRES_PASSWORD=smoke-${{ github.run_id }}`. These values are in the smoke env
+  file, so the sidecar sees them too in the upgrade through the sidecar.
 - **One architecture per runner.** The smoke starts the images of the runner's own
   platform. Build on native runners per architecture (GitHub template) to start both; a
   single QEMU job (Forgejo template, `release` action) starts only one.
@@ -402,13 +411,14 @@ The earlier release is found in a feed (`feed-type`, `feed-url`; on GitHub the d
 the repository itself) and read with `token`, which is sent only to the feed origin. Its
 `release.json` is parsed for the image digests but not signature-verified: it only decides
 what the smoke starts. The feed is read through the same address guard as the sidecar
-([feeds.md](feeds.md)): only public addresses, with no option to allow a private host. A
-release host on a private network cannot be read this way; use `upgrade-from: none` there.
+([feeds.md](feeds.md)): only public addresses. A release host on a private network (an
+internal Forgejo) must be named with `feed-allow-private-host` (`--feed-allow-private-host`
+in the CLI, repeatable); that exact host may then resolve to a private or loopback
+address.
 
-When the feed has releases but none that qualifies, the upgrade test is skipped with a
-note. When the feed has no release at all (the very first release of a project), the read
-fails with `no_release` and so does the smoke: use `upgrade-from: none` for the first
-release.
+When there is nothing to upgrade from, the upgrade test is skipped with a note: the feed
+has no release at all (the first release of a project), or none that has a `release.json`
+and qualifies.
 
 **Without `updater-config`**, the smoke starts the earlier images, waits for health with the
 earlier version, rewrites the env file with the new digests, recreates the services with
@@ -428,9 +438,13 @@ which is the closest thing to what operators will do:
    env file (written as `.cicd-updater-smoke.env` in the working directory and removed
    afterwards); `state.dir` is `/state`.
 4. The sidecar image runs as service `updater` (profile `updater`, no restart policy, label
-   `io.github.restow-backup.cicd-updater.role=sidecar`) with the Docker socket, the working
-   directory at the same path, the feed and the config read-only, and fresh state and
-   shared volumes.
+   `io.github.restow-backup.cicd-updater.role=sidecar`). Its environment and volumes from
+   the project's Compose file are **replaced**, not merged (Compose `!override`, which
+   needs Docker Compose 2.24 or newer on the runner), so production-only settings such as
+   the `PROJECT_DIR` mount or a registry auth file do not reach the smoke. The environment
+   is `CICD_UPDATER_CONFIG` (the changed copy) and `CICD_UPDATER_COMPOSE__PROJECT_DIR`
+   (the checkout); the volumes are the Docker socket, the working directory at the same
+   path, the feed and the config read-only, and fresh state and shared volumes.
 5. The smoke waits until `cicd-updater status --json` answers, runs
    `cicd-updater schedule <version> --yes`, and waits until the run has finished. The
    outcome must be `succeeded`; otherwise the run log is shown and the smoke fails.
@@ -487,7 +501,7 @@ Pin the image by digest after verifying it ([upgrading-the-updater.md](upgrading
 | --- | --- |
 | `env-check --compose-files a.yml,b.yml [--env-example .env.example]` | Smoke step 1 on its own. |
 | `build --images <json\|@file> --version V [--platforms linux/amd64,linux/arm64] [--no-push] [--cache-from X] [--cache-to Y]` | `docker buildx build` per image, labels as above, provenance and SBOM off, pushed by digest without a tag. Images: `{key: {repository, context, file, target, buildArgs}}`. Prints `images` (for `index`) and `smoke-images` (for `smoke`). |
-| `smoke --compose-files a.yml --images <json> --image-vars <json> --health-url U [--env-example F] [--health-version-path P] [--expect-version V] [--upgrade-from previous\|none\|V --feed-type T --feed-url U] [--updater-config F --updater-image I] [--timeout-seconds 600] [--report report.md]` | The smoke test. |
+| `smoke --compose-files a.yml --images <json> --image-vars <json> --health-url U [--env-example F] [--health-version-path P] [--expect-version V] [--upgrade-from previous\|none\|V --feed-type T --feed-url U [--feed-allow-private-host H]] [--updater-config F --updater-image I] [--env KEY=VALUE ...] [--timeout-seconds 600] [--report report.md]` | The smoke test. `--env` and `--feed-allow-private-host` may be repeated. |
 | `index --images <json\|@file> --version V [--extra-tags a,b] [--allow-existing]` | Create and tag the multi-arch indexes from the platform digests, after the smoke. Prints `images` (the published images JSON). |
 | `sign-images --images <json\|@file> --signing keyless\|key\|none [--key K] [--transparency-log]` | Sign each index digest. |
 | `sbom --images <json\|@file> --signing keyless\|key\|none [--key K] [--transparency-log] [--out-dir sbom]` | syft per platform image; attested unless the signing mode is `none`. Prints `files`. |
@@ -507,19 +521,20 @@ Environment variables the CLI reads:
 
 | Variable | Used by | Meaning |
 | --- | --- | --- |
-| `GITHUB_ACTIONS`, `GITLAB_CI` | signing commands | `--signing` defaults to `keyless` when one of them is `true`; elsewhere it is required. Pass it explicitly on other runners that set these variables. |
+| `GITHUB_ACTIONS`, `GITHUB_SERVER_URL`, `GITLAB_CI` | signing commands | `--signing` defaults to `keyless` on GitHub Actions on github.com (`GITHUB_ACTIONS=true` and `GITHUB_SERVER_URL=https://github.com`) and on GitLab CI (`GITLAB_CI=true`); everywhere else it is required. Forgejo and Gitea runners set `GITHUB_ACTIONS` too, so they need `--signing`. |
 | `COSIGN_PASSWORD` | signing commands | Password of the private key; handed to cosign in its environment only. |
 | `RELEASE_TOKEN`, `GITHUB_TOKEN`, `CI_JOB_TOKEN` | `upload` | The first one set is used. GitHub: `Authorization: Bearer`; Forgejo/Gitea: `Authorization: token`; GitLab: `PRIVATE-TOKEN`, or `JOB-TOKEN` when only `CI_JOB_TOKEN` is set. |
 | `RELEASE_TOKEN`, `GITHUB_TOKEN` | `smoke` | Token for reading earlier releases (`upgrade-from`). |
 | `GITHUB_API_URL` | `upload` | GitHub API base (default `https://api.github.com`). |
-| `GITHUB_SERVER_URL`, `GITHUB_REPOSITORY`, `GITHUB_SHA`, `CI_SERVER_URL`, `CI_PROJECT_PATH`, `CI_PROJECT_URL`, `CI_COMMIT_SHA` | `json create`, `build`, `smoke` | Defaults for project, commit, source label and the `upgrade-from` feed. |
+| `GITHUB_SERVER_URL`, `GITHUB_REPOSITORY`, `GITHUB_SHA`, `CI_SERVER_URL`, `CI_PROJECT_PATH`, `CI_PROJECT_URL`, `CI_COMMIT_SHA`, `CI_COMMIT_TIMESTAMP` | `json create`, `build`, `smoke` | Defaults for project, commit, the source and created labels, and the `upgrade-from` feed. |
 | `RUNNER_TEMP` | `build` | Directory for buildx metadata files (a temporary directory otherwise). |
 
 Exit codes: `0` success, `1` failed (the reason on standard error), `2` usage error.
 
 Tools: the sidecar image contains the Docker CLI with the Buildx and Compose plugins and
 cosign. It contains neither `syft` (so `release sbom` needs another image or step) nor
-`git` (so the `created` label falls back to the current time).
+`git` (so the `created` label comes from `CI_COMMIT_TIMESTAMP` on GitLab, else from the
+current time).
 
 A minimal sequence for any CI, here with a cosign key pair and a Forgejo release host
 (`cicd-updater release` stands for the CLI inside the image; `COSIGN_PASSWORD` and
@@ -538,7 +553,7 @@ cicd-updater release json create --images "$PUBLISHED" --version 1.4.0 --tag v1.
 cicd-updater release json validate --file release.json --tag v1.4.0
 cicd-updater release json sign --file release.json --signing key --key cosign.key
 cicd-updater release json verify --file release.json --public-key cosign.pub
-cicd-updater release upload --host gitea --api-url https://git.example.com/api/v1 \
+cicd-updater release upload --host gitea --api-url https://git.example.com \
   --repository acme/notes --tag v1.4.0 --files release.json,release.json.sigstore.json
 ```
 

@@ -22,7 +22,8 @@ Docker-in-Docker service:
 
 The publish job is the only job with an OIDC token
 (`id_tokens: { SIGSTORE_ID_TOKEN: { aud: sigstore } }`); cosign reads `SIGSTORE_ID_TOKEN`
-from the environment.
+from the environment. The sidecar image has no `git`, so the `created` label of the
+images comes from `CI_COMMIT_TIMESTAMP`.
 
 ## Before you start
 
@@ -60,28 +61,20 @@ project settings say otherwise), so keep it in sync with `ciConfigPath` on the h
   [upgrading-the-updater.md](../upgrading-the-updater.md)).
 - `docker:28-dind` and `tonistiigi/binfmt`: pin both by digest.
 
-### 3. Adjust the marked lines, and fix two lines of the template
+### 3. Adjust the marked lines
 
-The lines marked `ADJUST`: the image repository, the Compose files, `--image-vars` and the
-health URL. Two more changes are needed:
+The lines marked `ADJUST`:
 
-- **The API base for the upload.** `release upload --host gitlab` expects the API base
-  (`https://<host>/api/v4`), and GitLab provides it as `CI_API_V4_URL`. Use
+- `APP_REPOSITORY`, the repository of the app image (one variable per image). It is
+  deliberately not named like the Compose image variable (`APP_IMAGE`), which receives
+  `repository@digest` in the smoke;
+- the Compose files, `--image-vars`, the health URL (host `docker`, see above);
+- the throwaway values of `--env` for variables the Compose file requires but
+  `.env.example` leaves empty (the template passes
+  `--env "POSTGRES_PASSWORD=smoke-$CI_PIPELINE_ID"`; remove or extend it).
 
-  ```yaml
-      - >-
-        cicd-updater release upload --host gitlab --api-url "$CI_API_V4_URL"
-        --repository "$CI_PROJECT_PATH" --tag "$CI_COMMIT_TAG"
-        --files release.json,release.json.sigstore.json,smoke-report.md
-  ```
-
-  instead of `--api-url "$CI_SERVER_URL"`.
-- **The variable that holds the repository.** The template defines
-  `APP_IMAGE: $CI_REGISTRY_IMAGE/app` in `variables:` and passes
-  `--image-vars '{"app": "APP_IMAGE"}'`. CI variables are in the job's environment, and
-  Compose prefers its environment to the smoke env file, so the smoke would start
-  `$CI_REGISTRY_IMAGE/app` (the `latest` tag) instead of the pushed digest. Rename the CI
-  variable, for example to `APP_REPOSITORY`, in `variables:` and in the `build` script.
+`release upload --api-url "$CI_SERVER_URL"` is correct as it is: the release tools append
+`/api/v4` to a server URL (`$CI_API_V4_URL` works too).
 
 ### 4. Tokens and variables
 
@@ -95,10 +88,10 @@ health URL. Two more changes are needed:
 ### 5. The upgrade test
 
 The smoke job runs `--upgrade-from previous --feed-type gitlab --feed-url "$CI_PROJECT_URL"`.
-For the very first release the project has no release, the feed read fails with
-`no_release`, and so does the smoke: use `--upgrade-from none` for that release. A
-self-managed GitLab on a private address cannot be read by `upgrade-from` (the feed client
-only connects to public addresses); use `none` there.
+For the first release of a project there is nothing to upgrade from, and the upgrade test
+is skipped with a note. The feed client connects only to public addresses; for a
+self-managed GitLab on a private address add `--feed-allow-private-host <host>` (the exact
+host name of `CI_PROJECT_URL`).
 
 ### 6. Release
 

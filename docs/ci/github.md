@@ -53,30 +53,24 @@ is part of the signing identity.
 
 The lines marked `ADJUST`:
 
-- the image repository per image key (lowercase, for example `ghcr.io/acme/notes`);
+- the image repository per image key in the workflow variable `APP_REPOSITORY`
+  (lowercase, for example `ghcr.io/acme/notes`), one variable per image;
 - one `build` step per further image, and its digest in the "Keep the digest" and "The
   platform digests per image" steps;
 - the smoke inputs: `compose-files`, `image-vars` (the env key of each image in the Compose
-  file), `health-url`, `health-version-path`.
+  file, for example `APP_IMAGE`), `health-url`, `health-version-path`;
+- throwaway values for variables the Compose file requires but `.env.example` leaves
+  empty, in the commented `env` input of the smoke step:
 
-**Rename the workflow variable that holds the repository.** The template keeps the
-repository in a workflow-level variable `APP_IMAGE` and passes `image-vars:
-'{"app": "APP_IMAGE"}'`. When the Compose file also reads `APP_IMAGE`, the workflow
-variable reaches Compose during the smoke test and wins over the smoke env file, so the
-smoke would start `ghcr.io/acme/notes` (the `latest` tag) instead of the pushed digest.
-Give the workflow variable another name, for example:
+  ```yaml
+            env: |
+              POSTGRES_PASSWORD=smoke-${{ github.run_id }}
+  ```
 
-```yaml
-env:
-  APP_REPOSITORY: ghcr.io/acme/notes
-
-# and in the steps
-          image: ${{ env.APP_REPOSITORY }}
-          images: '{"app": {"repository": "${{ env.APP_REPOSITORY }}", "digest": "${{ steps.app.outputs.digest }}"}}'
-          image-vars: '{"app": "APP_IMAGE"}'
-```
-
-and use `$APP_REPOSITORY` in the "The platform digests per image" step.
+The repository variable (`APP_REPOSITORY`) and the Compose image variable (`APP_IMAGE`,
+which receives `repository@digest`) are different things; keep their names apart. The
+smoke runs Compose without runner variables named like keys of its env file, so a
+collision cannot replace the pushed digest, but separate names keep the workflow readable.
 
 ### 3. Pin the actions
 
@@ -105,10 +99,9 @@ The actions pin every third-party action they use to a commit SHA themselves.
 ### 4. The upgrade test
 
 The template sets `upgrade-from: previous` on the smoke step: it starts the newest earlier
-release with a `release.json` first and then updates it to the new digests. For the very
-first release the repository has no release at all, and the feed read fails with
-`no_release`; set `upgrade-from: none` for that release and switch to `previous`
-afterwards.
+release with a `release.json` first and then updates it to the new digests. When there is
+no earlier release yet (the first release of the repository), the upgrade test is skipped
+with a note.
 
 To run the upgrade through the sidecar itself, add:
 
