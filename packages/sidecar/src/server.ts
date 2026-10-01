@@ -261,11 +261,10 @@ export function buildServer(deps: ServerDeps): Hono {
   });
 
   app.get("/public/v1/maintenance", (c) => c.redirect("/public/v1/maintenance/", 308));
-  app.get("/public/v1/maintenance/:file{[A-Za-z0-9._-]*}", async (c) => {
+  const maintenancePage = async (name: string): Promise<Response> => {
     if (!config.maintenancePage.enabled) {
       return problem("not_found", "The maintenance page is disabled.");
     }
-    const name = c.req.param("file") || "index.html";
     const file = (await deps.maintenance())[name];
     if (!file) {
       return problem("not_found");
@@ -278,7 +277,11 @@ export function buildServer(deps: ServerDeps): Hono {
         "Referrer-Policy": "no-referrer",
       },
     });
-  });
+  };
+  app.get("/public/v1/maintenance/", () => maintenancePage("index.html"));
+  app.get("/public/v1/maintenance/:file{[A-Za-z0-9][A-Za-z0-9._-]*}", (c) =>
+    maintenancePage(c.req.param("file")),
+  );
 
   // -- authenticated ------------------------------------------------------------
 

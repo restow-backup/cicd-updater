@@ -2,7 +2,7 @@ import { constants as fsConstants } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { EnvFile, type Redactor } from "@cicd-updater/engine";
-import { FeedReader, type RemoteFeedType } from "@cicd-updater/feed";
+import { FeedReader, type FetchLike, type RemoteFeedType } from "@cicd-updater/feed";
 import { ROLE_LABEL, SIDECAR_ROLE, type UpdaterConfig, writableKeys } from "@cicd-updater/protocol";
 import { readTokenFile } from "./catalog.js";
 import type { LoadedConfig } from "./config-file.js";
@@ -35,7 +35,10 @@ export interface DoctorDeps {
   docker: CliDocker | null;
   self: SelfInfo | null;
   redactor: Redactor;
+  /** For the Sigstore reachability check (tests replace it). */
   fetch?: typeof fetch;
+  /** Replaces the guarded feed transport (tests). */
+  feedFetch?: FetchLike;
 }
 
 const SIGSTORE_TUF = "https://tuf-repo-cdn.sigstore.dev/1.root.json";
@@ -226,6 +229,7 @@ export async function runDoctor(
         token,
         tagPattern: config.release.tagPattern,
         allowPrivateHosts: feed.allowPrivateNetwork ? [new URL(feed.url as string).hostname] : [],
+        fetch: deps.feedFetch,
       });
       const entries = await reader.list();
       add(

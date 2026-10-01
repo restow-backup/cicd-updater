@@ -150,12 +150,24 @@ export async function loadConfig(
   };
 }
 
-/** The effective configuration for display: nothing in it is secret, token files appear by path. */
+/** The effective configuration for display: string values pass the redactor (nothing in it should be secret). */
 export function configView(
   config: UpdaterConfig,
   redact: (text: string) => string,
 ): Record<string, unknown> {
-  return JSON.parse(redact(JSON.stringify(config))) as Record<string, unknown>;
+  const walk = (value: unknown): unknown => {
+    if (typeof value === "string") {
+      return redact(value);
+    }
+    if (Array.isArray(value)) {
+      return value.map(walk);
+    }
+    if (value !== null && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, walk(item)]));
+    }
+    return value;
+  };
+  return walk(config) as Record<string, unknown>;
 }
 
 export function formatProblems(file: string, problems: readonly ConfigProblem[]): string {
