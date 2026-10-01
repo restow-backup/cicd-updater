@@ -143,7 +143,7 @@ Starts the release from its Compose files with the pushed digests and tears it d
 | `images` | required | JSON `{"<key>": {"repository": "...", "digest": "sha256:..."}}` of the images to test. |
 | `image-vars` | required | JSON `{"<key>": "<ENV_VAR>"}`: the env key each image is set through. |
 | `health-url` | required | URL the runner polls until the app is healthy. Publish the port in a smoke Compose override. |
-| `health-version-path` | empty | Path of the version in the health JSON (`$.version`); empty skips the version check. |
+| `health-version-path` | empty | Path of the version in the health JSON (`$.version`); empty skips the version check. The runner sends no token: set it only when the health endpoint shows the version to anyone. An app that reveals the version only to the sidecar's token (recommended) leaves it empty; the sidecar checks the version on the host. |
 | `expect-version` | empty | Version the health answer must report; empty means the version of the pushed tag (when the run is for a tag). |
 | `tag-pattern` | `v{version}` | Used to derive `expect-version` from the tag. |
 | `upgrade-from` | `none` | `none`, `previous` (the newest earlier release) or a version. |

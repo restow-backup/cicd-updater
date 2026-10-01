@@ -73,7 +73,11 @@ jobs:
           images: '{"app": {"repository": "${{ env.APP_REPOSITORY }}", "digest": "${{ steps.app.outputs.digest }}"}}'
           image-vars: '{"app": "APP_IMAGE"}' # ADJUST: the env key the Compose file reads
           health-url: http://127.0.0.1:3000/healthz # ADJUST: published by the smoke override
-          health-version-path: $.version
+          # No health-version-path by default: an app that reveals its version only to the
+          # sidecar's token (recommended, docs/app-integration.md) cannot be version-checked
+          # by the runner, which has no token. The sidecar checks the version on the host.
+          # If your health endpoint shows the version to anyone, enable the check:
+          # health-version-path: $.version
           upgrade-from: previous
           # Throwaway values for variables your Compose file requires (${VAR:?}).
           # env: |
