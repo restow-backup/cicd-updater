@@ -15,6 +15,7 @@ All notable changes to this project are documented in this file. The format foll
   and Hono adapters, FastAPI, a plain HTTP reference), health with version, migration
   probe queries, the admin "Updates" page and the maintenance banner (React and plain
   JavaScript), and an integration checklist. Type-checked against the SDK in CI.
+- `README.de.md`: the README in German.
 
 ### Changed
 

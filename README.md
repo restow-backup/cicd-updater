@@ -1,5 +1,7 @@
 # cicd-updater
 
+Deutsch: [README.de.md](README.de.md)
+
 Signed, self-service updates for apps that run with Docker Compose: from a button in the
 app or a command on the host.
 
