@@ -460,7 +460,7 @@ an empty default column means the key is optional and has no default.
 | `docker` | object | `{}` |  |  |
 | `docker.socket` | str | `"/var/run/docker.sock"` | `CICD_UPDATER_DOCKER__SOCKET` | Docker Engine socket. |
 | `docker.registryAuthFile` | str \| null | `null` | `CICD_UPDATER_DOCKER__REGISTRY_AUTH_FILE` | Docker config.json with an auths object only, used for pulls and verification. |
-| `docker.minFreeMb` | int 0–100000000 | `2048` | `CICD_UPDATER_DOCKER__MIN_FREE_MB` | Free space required on the state file system after the backup. |
+| `docker.minFreeMb` | int 0–100000000 | `2048` | `CICD_UPDATER_DOCKER__MIN_FREE_MB` | Free space required after the backup on the file system of the backups directory (state.dir/backups: the state volume, or a separate volume mounted there). |
 
 ### `release`
 

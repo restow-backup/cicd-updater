@@ -167,7 +167,7 @@
         },
         "minFreeMb": {
           "default": 2048,
-          "description": "Free space required on the state file system after the backup.",
+          "description": "Free space required after the backup on the file system of the backups directory (state.dir/backups: the state volume, or a separate volume mounted there).",
           "type": "integer",
           "minimum": 0,
           "maximum": 100000000

@@ -40,6 +40,24 @@ docker compose exec updater cicd-updater backups list --json   # with sha256, cr
 
 `GET /v1/backups` returns the same list with a `protected` flag.
 
+### Backups on another disk
+
+Mount a volume or a host directory at `/state/backups` in the sidecar service (the
+`backups` directory inside `state.dir`). The space check before every backup, the
+`disk_space` blocker and `doctor` measure the file system of that directory, so a
+separate backup disk is checked, not the state volume:
+
+```yaml
+services:
+  updater:
+    volumes:
+      - updater-state:/state
+      - /srv/backup-disk/notes:/state/backups   # backups on another disk
+```
+
+The directory must be writable by root in the container (the sidecar sets it to mode
+`0700`). Moving the whole state volume to the other disk works as well.
+
 ### Copying a backup off the host
 
 `backups cat` streams a backup to standard output. Use `-T`, otherwise Docker allocates a

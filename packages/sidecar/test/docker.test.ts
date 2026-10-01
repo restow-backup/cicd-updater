@@ -1,8 +1,11 @@
+import * as os from "node:os";
+import * as path from "node:path";
 import { OpsError, PullError, Redactor } from "@cicd-updater/engine";
 import { describe, expect, it } from "vitest";
 import {
   CliDocker,
   classifyPullFailure,
+  freeBytes,
   parseComposePs,
   parseSize,
   platformOf,
@@ -340,5 +343,15 @@ describe("parsers", () => {
     expect(runner.argvs.filter((argv) => argv[1] === "rm")).toEqual([["docker", "rm", "-f", id]]);
     expect(runner.argvs[0]).toContain("label=io.github.restow-backup.cicd-updater.managed=true");
     expect(runner.argvs[1]).toContain("name=cicd-updater-migrate-");
+  });
+});
+
+describe("freeBytes", () => {
+  it("measures the nearest existing directory when the target does not exist yet", async () => {
+    const existing = await freeBytes(os.tmpdir());
+    const missing = await freeBytes(path.join(os.tmpdir(), "cicd-updater-no-such-dir", "backups"));
+    expect(existing).toBeGreaterThan(0);
+    // Same file system: the same order of magnitude (other processes may write meanwhile).
+    expect(Math.abs(missing - existing)).toBeLessThan(existing / 10);
   });
 });

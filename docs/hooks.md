@@ -45,8 +45,9 @@ Every backup goes through the same stages:
 1. **Space check.** The sidecar estimates the size: PostgreSQL
    `SELECT pg_database_size(current_database())`, MySQL the sum of `data_length + index_length`
    of the database's tables, volumes from `docker system df -v`. The estimate times 1.25 plus
-   `docker.minFreeMb` must fit into the free space of the state volume
-   (`backup.insufficient_space`). If no estimate can be made, only `docker.minFreeMb` is
+   `docker.minFreeMb` must fit into the free space of the file system the backup is written
+   to, `/state/backups` (the state volume, or a separate volume mounted there;
+   `backup.insufficient_space`). If no estimate can be made, only `docker.minFreeMb` is
    checked.
 2. **Create** the file as `<name>.partial` in `/state/backups/`, counting bytes and computing
    the SHA-256 while writing (`backup.failed`, `backup.timeout` after

@@ -124,6 +124,8 @@ export interface SidecarPreflightOptions {
   projectName: string;
   selfInfo: () => SelfInfo;
   protectedBackups: () => Set<string>;
+  /** Free bytes on the file system of a directory (tests replace it). */
+  freeSpace?: (dir: string) => Promise<number>;
 }
 
 export class SidecarPreflight implements PreflightPort {
@@ -321,11 +323,14 @@ export class SidecarPreflight implements PreflightPort {
     }
 
     try {
-      const free = await freeBytes(config.state.dir);
+      // Backups are the large writes: check the file system they go to (a separate
+      // volume at <state.dir>/backups, or the state volume itself).
+      const directory = this.options.backups.directory;
+      const free = await (this.options.freeSpace ?? freeBytes)(directory);
       if (free < config.docker.minFreeMb * 1024 * 1024) {
         block(
           "disk_space",
-          `${Math.floor(free / (1024 * 1024))} MB free, ${config.docker.minFreeMb} MB required`,
+          `${Math.floor(free / (1024 * 1024))} MB free in ${directory}, ${config.docker.minFreeMb} MB required`,
         );
       }
     } catch (error) {

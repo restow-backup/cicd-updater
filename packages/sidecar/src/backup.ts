@@ -65,6 +65,8 @@ export interface DockerBackupOptions {
   projectName: string;
   /** The sidecar's own image ID (for volume archives and copying command output). */
   selfImage: () => string | null;
+  /** Free bytes on the file system of a directory (tests replace it). */
+  freeSpace?: (dir: string) => Promise<number>;
 }
 
 export class DockerBackupRunner implements BackupRunner {
@@ -194,15 +196,20 @@ export class DockerBackupRunner implements BackupRunner {
     return null;
   }
 
+  /**
+   * The estimate must fit the file system the backup is written to: the backups
+   * directory, which may be a separate volume mounted at `<state.dir>/backups`.
+   */
   private async checkSpace(): Promise<void> {
     const minFree = this.options.config.docker.minFreeMb * MiB;
-    const free = await freeBytes(this.options.stateDir);
+    const directory = this.options.store.directory;
+    const free = await (this.options.freeSpace ?? freeBytes)(directory);
     const estimate = await this.estimate();
     const needed = Math.ceil((estimate ?? 0) * 1.25) + minFree;
     if (free < needed) {
       throw new BackupError(
         "insufficient_space",
-        `${Math.floor(free / MiB)} MB free, ${Math.ceil(needed / MiB)} MB needed (estimate ${estimate === null ? "unknown" : `${Math.ceil(estimate / MiB)} MB`} x 1.25 + docker.minFreeMb).`,
+        `${Math.floor(free / MiB)} MB free in ${directory}, ${Math.ceil(needed / MiB)} MB needed (estimate ${estimate === null ? "unknown" : `${Math.ceil(estimate / MiB)} MB`} x 1.25 + docker.minFreeMb).`,
       );
     }
   }

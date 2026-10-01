@@ -46,6 +46,7 @@ function setup(
   runner: ScriptedRunner,
   change: (input: UpdaterConfigInput) => void = () => undefined,
   minFreeMb = 0,
+  freeSpace?: (dir: string) => Promise<number>,
 ) {
   const input = baseConfig(projectDir);
   input.state = { dir: stateDir };
@@ -75,6 +76,7 @@ function setup(
     stateDir,
     projectName: "notes",
     selfImage: () => "sha256:selfimage",
+    freeSpace,
   });
   return { backup, store, config };
 }
@@ -171,6 +173,27 @@ describe("PostgreSQL", () => {
     expect(slow.argvs.some((argv) => argv.includes(POSTGRES_TERMINATE_SCRIPT))).toBe(true);
   });
 
+  it("checks the free space of the backups directory, also when it is another volume", async () => {
+    const asked: string[] = [];
+    const runner = new ScriptedRunner()
+      .answer(() => ({ stdout: "" }))
+      .answer((spec) =>
+        spec.argv.includes("SELECT pg_database_size(current_database())")
+          ? { stdout: String(400 * 1024 * 1024) }
+          : undefined,
+      );
+    const { backup, store } = setup(runner, undefined, 100, async (dir) => {
+      asked.push(dir);
+      return 500 * 1024 * 1024;
+    });
+    const error = await rejection<BackupError>(backup.create(input()));
+    expect(asked).toEqual([store.directory]);
+    expect(error.kind).toBe("insufficient_space");
+    expect(error.detail).toBe(
+      `500 MB free in ${store.directory}, 600 MB needed (estimate 400 MB x 1.25 + docker.minFreeMb).`,
+    );
+  });
+
   it("refuses when the estimate does not fit the free space", async () => {
     const runner = new ScriptedRunner()
       .answer(() => ({ stdout: "" }))
@@ -181,7 +204,7 @@ describe("PostgreSQL", () => {
       );
     const error = await rejection<BackupError>(setup(runner).backup.create(input()));
     expect(error.kind).toBe("insufficient_space");
-    expect(error.detail).toMatch(/MB free, \d+ MB needed/);
+    expect(error.detail).toMatch(/MB free in .+, \d+ MB needed/);
     expect(runner.argvs.some((argv) => argv.includes(POSTGRES_DUMP_SCRIPT))).toBe(false);
   });
 });

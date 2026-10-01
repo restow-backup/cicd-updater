@@ -78,7 +78,8 @@ services:
 
 volumes:
   updater-state:
-  # Backups on another disk: bind the whole state volume to a directory there.
+  # Backups on another disk: mount a directory there at /state/backups in the updater
+  # service (- /srv/backup-disk/myapp:/state/backups), or bind the whole state volume:
   #   driver: local
   #   driver_opts: { type: none, o: bind, device: /srv/backup-disk/myapp-updater-state }
   updater-shared:

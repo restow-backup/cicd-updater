@@ -89,6 +89,7 @@ function preflight(
   runner: ScriptedRunner,
   self: SelfInfo,
   change: (input: UpdaterConfigInput) => void = () => undefined,
+  freeSpace?: (dir: string) => Promise<number>,
 ) {
   const input = baseConfig(projectDir);
   input.state = { dir: stateDir };
@@ -121,11 +122,33 @@ function preflight(
         workingDir: self.workingDir === "" ? projectDir : self.workingDir,
       }),
       protectedBackups: () => new Set(),
+      freeSpace,
     }),
   };
 }
 
 describe("preflight", () => {
+  it("checks the free space where backups are written (a separate volume at state/backups)", async () => {
+    const asked: string[] = [];
+    const { subject } = preflight(
+      healthyRunner(),
+      SELF,
+      (input) => {
+        input.docker = { minFreeMb: 2048 };
+      },
+      async (dir) => {
+        asked.push(dir);
+        return 100 * 1024 * 1024;
+      },
+    );
+    const capabilities = await subject.check({ deep: true });
+    expect(asked).toEqual([path.join(stateDir, "backups")]);
+    const blocker = capabilities.blockers.find((b) => b.code === "disk_space");
+    expect(blocker?.detail).toBe(
+      `100 MB free in ${path.join(stateDir, "backups")}, 2048 MB required`,
+    );
+  });
+
   it("is ready for a healthy project and reports Docker facts", async () => {
     const { subject } = preflight(healthyRunner(), SELF);
     const capabilities = await subject.check({ deep: true });

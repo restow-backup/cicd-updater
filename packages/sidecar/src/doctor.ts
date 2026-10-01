@@ -157,17 +157,18 @@ export async function runDoctor(
       `${file}: state.dir`,
     );
   }
+  const backupsDir = path.join(config.state.dir, "backups");
   try {
-    const free = await freeBytes(config.state.dir);
+    const free = await freeBytes(backupsDir);
     const needed = config.docker.minFreeMb * 1024 * 1024;
     add(
       "disk space",
       free >= needed ? "ok" : "fail",
-      `${Math.floor(free / (1024 * 1024))} MB free, ${config.docker.minFreeMb} MB required`,
+      `${Math.floor(free / (1024 * 1024))} MB free in ${backupsDir}, ${config.docker.minFreeMb} MB required`,
       `${file}: docker.minFreeMb`,
     );
   } catch (error) {
-    add("disk space", "fail", (error as Error).message, config.state.dir);
+    add("disk space", "fail", (error as Error).message, backupsDir);
   }
 
   // Own container

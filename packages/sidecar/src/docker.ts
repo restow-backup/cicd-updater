@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import {
   type BuildSpec,
   type DockerOps,
@@ -787,8 +788,22 @@ export function parseSize(text: string): number {
   return Math.round(Number(match[1]) * (factor[match[2] as string] ?? 1));
 }
 
-/** Free bytes on the file system that holds `dir`. */
+/**
+ * Free bytes on the file system that holds `dir`, or its nearest existing parent
+ * (the backups directory may not exist before the first backup).
+ */
 export async function freeBytes(dir: string): Promise<number> {
-  const stats = await fs.statfs(dir);
-  return Number(stats.bavail) * Number(stats.bsize);
+  let current = path.resolve(dir);
+  for (;;) {
+    try {
+      const stats = await fs.statfs(current);
+      return Number(stats.bavail) * Number(stats.bsize);
+    } catch (error) {
+      const parent = path.dirname(current);
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT" || parent === current) {
+        throw error;
+      }
+      current = parent;
+    }
+  }
 }

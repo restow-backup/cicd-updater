@@ -54,7 +54,7 @@ with `STATUS` one of `OK`, `WARN`, `FAIL`, `SKIP`. With `--json` it prints
 | `compose configuration` | a managed service does not take its image from its key, or `docker compose config` fails | use `image: ${KEY}` with the `imageVar` of `updater.yaml`; run `docker compose config` by hand |
 | `env file` | the env file is missing, or it or its directory is not writable | create it; mount the project directory read-write; check owner and mode |
 | `state volume` | `state.dir` is not writable | mount a named volume at `/state` |
-| `disk space` | less free space on the state volume than `docker.minFreeMb` | free space |
+| `disk space` | less free space for backups (`/state/backups`: the state volume or a volume mounted there) than `docker.minFreeMb` | free space |
 | `own container` (`SKIP`) | the process is not in a container, or Docker cannot be asked | run the doctor in the sidecar container (`docker compose exec updater ...`) |
 | `own labels` (`WARN`) | the role label is missing | add `io.github.restow-backup.cicd-updater.role: sidecar` to the service |
 | `own image pinned` (`WARN`) | the sidecar's image reference has no digest | pin it: `...:X.Y.Z@sha256:<digest>` |
@@ -95,7 +95,7 @@ deep preflight turns the first blocker into the failure `prepare.<blocker>`.
 | `project_mismatch` | `compose.projectDir` differs from the label `com.docker.compose.project.working_dir` of the sidecar's container, or `compose.projectName` from `com.docker.compose.project` | set `CICD_UPDATER_COMPOSE__PROJECT_DIR` to the absolute host path the project is started from; remove or fix `compose.projectName` |
 | `env_unwritable` | the env file is missing, not writable, or its directory is not writable | create the file; mount the project directory read-write; check permissions |
 | `state_unwritable` | the state directory is not writable | mount a named volume at `state.dir` |
-| `disk_space` | free space on the state file system is below `docker.minFreeMb` | free space (old images, old backups); lower `docker.minFreeMb` only if you know the backup size |
+| `disk_space` | free space where backups are written (`/state/backups`) is below `docker.minFreeMb` | free space (old images, old backups); lower `docker.minFreeMb` only if you know the backup size |
 | `updater_image_unpinned` | the sidecar's own service takes its image from a key the sidecar rewrites | give the sidecar a fixed image reference, or a variable that is not an `imageVar` |
 | `multiple_updaters` | another running sidecar container of this Compose project carries the role label | keep one: `docker ps --filter label=io.github.restow-backup.cicd-updater.role=sidecar` |
 | `api_exposed` | the sidecar container publishes a port | remove `ports:` (only `server.allowPublishedPort: true` would allow it; not recommended) |
@@ -172,7 +172,7 @@ Before the point of no return a failure ends `unchanged`; after it the
 | Code | Text | Cause | Remedy |
 | --- | --- | --- | --- |
 | `backup.baseline_unavailable` | The database schema state could not be read. | the migration probe failed before the update (query error, missing table, timeout, value too long) | run the probe query by hand in the database container; fix `hooks.migrationProbe` |
-| `backup.insufficient_space` | The backup would not fit on the disk. | estimate × 1.25 + `docker.minFreeMb` exceeds the free space (the detail has the numbers) | free space on the state volume |
+| `backup.insufficient_space` | The backup would not fit on the disk. | estimate × 1.25 + `docker.minFreeMb` exceeds the free space (the detail has the numbers) | free space where backups are written (`/state/backups`) |
 | `backup.failed` | The backup failed. | the dump or command exited non-zero, or encrypting failed | read the detail (redacted error output) |
 | `backup.timeout` | The backup took too long. | `hooks.backup.timeoutSeconds` passed | raise the limit |
 | `backup.verify_failed` | The backup could not be verified. | empty file, not a PostgreSQL archive, `pg_restore --list` failed, the MySQL dump is truncated, the archive misses a volume, the command output is missing | read the detail; run the dump by hand |

@@ -28021,7 +28021,9 @@ var dockerSchema = external_exports.strictObject({
   registryAuthFile: absPath.nullable().default(null).meta({
     description: "Docker config.json with an auths object only, used for pulls and verification."
   }),
-  minFreeMb: int2(0, 1e8).default(2048).meta({ description: "Free space required on the state file system after the backup." })
+  minFreeMb: int2(0, 1e8).default(2048).meta({
+    description: "Free space required after the backup on the file system of the backups directory (state.dir/backups: the state volume, or a separate volume mounted there)."
+  })
 }).prefault({});
 var FEED_TYPES = ["github", "gitea", "gitlab", "static", "file"];
 var feedSchema = external_exports.strictObject({

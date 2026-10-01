@@ -215,9 +215,10 @@ const dockerSchema = z
     registryAuthFile: absPath.nullable().default(null).meta({
       description: "Docker config.json with an auths object only, used for pulls and verification.",
     }),
-    minFreeMb: int(0, 100_000_000)
-      .default(2048)
-      .meta({ description: "Free space required on the state file system after the backup." }),
+    minFreeMb: int(0, 100_000_000).default(2048).meta({
+      description:
+        "Free space required after the backup on the file system of the backups directory (state.dir/backups: the state volume, or a separate volume mounted there).",
+    }),
   })
   .prefault({});
 
