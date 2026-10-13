@@ -24,7 +24,7 @@
 ########################################
 # build: the bundled sidecar
 ########################################
-FROM --platform=$BUILDPLATFORM node:24.21-alpine3.24@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS build
+FROM --platform=$BUILDPLATFORM node:26.11-alpine3.24@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a AS build
 ENV CI=true
 # The pnpm version of package.json (packageManager).
 RUN npm install --global pnpm@9.15.9 && pnpm --version
@@ -47,13 +47,13 @@ RUN pnpm --filter @cicd-updater/sidecar build \
 ########################################
 # tools: Docker CLI, buildx, compose and cosign, pinned by image digest
 ########################################
-FROM docker:29.8.2-cli@sha256:b1805116a6a86cc591b5d5f60a910a0715cdcc9d18d866ad68b1457ead25c35c AS docker-cli
+FROM docker:29.9.0-cli@sha256:1a4c7cb63513f349bdad01fcc6e0f3f2f67d37b9da86f14dc0d4a0942eecda00 AS docker-cli
 FROM ghcr.io/sigstore/cosign/cosign:v3.1.3@sha256:9e5c2f2edc34351160407ca3416c61855bdf9403c3c5936e0f0be7fc261611b8 AS cosign
 
 ########################################
 # runtime
 ########################################
-FROM node:24.21-alpine3.24@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runtime
+FROM node:26.11-alpine3.24@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a AS runtime
 ARG VERSION=0.0.0-dev
 ARG REVISION=
 ARG CREATED=
