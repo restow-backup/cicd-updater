@@ -24,7 +24,7 @@
 ########################################
 # build: the bundled sidecar
 ########################################
-FROM --platform=$BUILDPLATFORM node:26.12-alpine3.24@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797 AS build
+FROM --platform=$BUILDPLATFORM node:26.13-alpine3.24@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS build
 ENV CI=true
 # The pnpm version of package.json (packageManager).
 RUN npm install --global pnpm@9.15.9 && pnpm --version
@@ -53,7 +53,7 @@ FROM ghcr.io/sigstore/cosign/cosign:v3.1.4@sha256:0f06154836d2de34f887a5c273506d
 ########################################
 # runtime
 ########################################
-FROM node:26.12-alpine3.24@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797 AS runtime
+FROM node:26.13-alpine3.24@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS runtime
 ARG VERSION=0.0.0-dev
 ARG REVISION=
 ARG CREATED=
