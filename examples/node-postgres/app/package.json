@@ -29,5 +29,9 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "typescript": "^5.9.0"
+  },
+  "overrides": {
+    "glob": "^14.0.2",
+    "zod": "^4.6.6"
   }
 }
