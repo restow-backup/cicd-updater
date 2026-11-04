@@ -7,6 +7,10 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Changed
+
+- Sidecar: hono 4.13.16 and @hono/node-server 2.1.6.
+
 ### Security
 
 - zod 4.6.7 in all packages and the bundled `actions/lib/release-tools.mjs`, fixing

@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.6.5/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -14,7 +14,10 @@
       "!actions/lib/*.mjs",
       "!schemas",
       "!openapi",
-      "!packages/sidecar/assets/maintenance/vendor"
+      "!packages/sidecar/assets/maintenance/vendor",
+      "!**/*.md",
+      "!**/*.yml",
+      "!**/*.yaml"
     ]
   },
   "formatter": {
