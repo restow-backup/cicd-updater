@@ -7,20 +7,7 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
-### Changed
-
-- Sidecar: hono 4.13.16 and @hono/node-server 2.1.6.
-
-### Security
-
-- zod 4.6.7 in all packages and the bundled `actions/lib/release-tools.mjs`, fixing
-  GHSA-mrhx-c7xc-m3w5 (memory exhaustion on oversized constrained collections).
-- Development dependencies: vite 8.3.5, fast-uri 3.1.9 and esbuild 0.28.2 (via tsup 9),
-  fixing the open vite, fast-uri and esbuild advisories.
-- Example `node-postgres`: npm overrides for glob 14 and zod 4.6.7, fixing
-  GHSA-3g3m-2fjr-6pw4 (glob) and GHSA-g3hv-75wg-m249 (minimatch).
-
-## [1.0.0] - YYYY-MM-DD
+## [1.0.0] - 2026-11-04
 
 The first release. It establishes the 1.x contracts listed below; within 1.x they change
 only in backward-compatible ways.
@@ -94,3 +81,12 @@ only in backward-compatible ways.
   ships its lock file. The examples' `UPDATER_URL=` switches the in-app updates off.
 - `templates/github/release.yml`: no version check in the token-less smoke by default.
 - The React banner announces only state changes; the countdown is outside the live region.
+
+### Security
+
+- zod 4.6.7 in all packages and the bundled `actions/lib/release-tools.mjs`, fixing
+  GHSA-mrhx-c7xc-m3w5 (memory exhaustion on oversized constrained collections).
+- Development dependencies: vite 8.3.5, fast-uri 3.1.9 and esbuild 0.28.2 (via tsup 9),
+  fixing the open vite, fast-uri and esbuild advisories.
+- Example `node-postgres`: npm overrides for glob 14 and zod 4.6.7, fixing
+  GHSA-3g3m-2fjr-6pw4 (glob) and GHSA-g3hv-75wg-m249 (minimatch).
