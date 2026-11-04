@@ -9,6 +9,13 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 10
+    ignore:
+      # The types follow the oldest supported Node.js (engines: >=22.12), not the newest.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # TypeScript majors are taken deliberately, not as part of the weekly group.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
     groups:
       npm-dev:
         dependency-type: development
