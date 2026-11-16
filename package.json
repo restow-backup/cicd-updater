@@ -29,7 +29,7 @@
     "e2e": "vitest run --config e2e/vitest.config.ts"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.6.5",
+    "@biomejs/biome": "^2.6.7",
     "@cicd-updater/protocol": "workspace:^",
     "@cicd-updater/release-tools": "workspace:^",
     "@cicd-updater/sidecar": "workspace:^",
@@ -41,7 +41,7 @@
     "tsup": "^9.0.0",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
-    "vite": "^8.3.3",
+    "vite": "^8.3.8",
     "vitest": "^5.1.0",
     "yaml": "^2.9.1",
     "zod": "^4.6.7"
